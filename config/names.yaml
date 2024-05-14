@@ -1,0 +1,62 @@
+MALE:
+  first:
+    - Asep
+    - Bambang
+    - Cecep
+    - Dadang
+    - Endang
+    - Fahri
+    - Gunawan
+    - Heri
+    - Iwan
+    - Juwik
+    - Kemal
+    - Lili
+    - Muhammad
+    - Noer
+    - Opik
+    - Panji
+    - Qodari
+    - Rahmat
+    - Slamet
+    - Tarmidi
+    - Umar
+    - Venda
+    - Warsito
+    - Yanto
+    - Zulfikar
+  middle:
+    - Tri
+  last:
+    - Handoko
+FEMALE:
+  first:
+    - Azizah
+    - Bunga
+    - Cantik
+    - Delisa
+    - Endah
+    - Fania
+    - Gisel
+    - Halimah
+    - Intan
+    - Juwita
+    - Kemala
+    - Laila
+    - Muslimah
+    - Nur
+    - Oca
+    - Pelita
+    - Qanita
+    - Rahmah
+    - Sri
+    - Tri
+    - Upik
+    - Veronika
+    - Wati
+    - Yanti
+    - Zaenab
+  middle:
+    - Cahya
+  last:
+    - Ningsih

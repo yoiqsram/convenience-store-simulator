@@ -1,0 +1,845 @@
+associations:
+  - products:
+      FRIED CHICKEN: 0.4
+      SOFT DRINKS: 0.2
+  - products:
+      BURGERS: 0.5
+      SOFT DRINKS: 0.15
+  - products:
+      BREAD: 0.5
+      MILKS: 0.2
+  - products:
+      COOKIES & CRACKERS: 0.4
+      MILKS: 0.05
+  - products:
+      BREAKFAST BARS: 0.25
+      MILKS: 0.05
+  - products:
+      CEREAL: 0.6
+      MILKS: 0.05
+  - products:
+      BREAD: 0.3
+      COFFEE: 0.1
+  - products:
+      CIGARETTES: 0.6
+      COFFEE: 0.1
+  - products:
+      YOGURTS & MILKSHAKES: 0.3
+      BOTTLED WATER: 0.05
+  - products:
+      ENERGY DRINKS & SPORT DRINKS: 0.25
+      FRESH FRUITS: 0.05
+  - products:
+      ICE CREAMS: 0.25
+      BOTTLED WATER: 0.05
+  - products:
+      SALT & SUGAR: 0.5
+      SEASONINGS: 0.5
+  - products:
+      SEASONINGS: 0.4
+      KETCHUP, SAUCES, & MAYONNAISE: 0.4
+  - products:
+      EGGS: 0.2
+      COOKING OIL: 0.2
+  - products:
+      FLOUR: 0.4
+      BUTTER & MARGARINE: 0.1
+  - products:
+      BABY FOOD: 0.5
+      DIAPERS: 0.5
+  - products:
+      SHAVING RAZORS: 0.25
+      PERFUME & BODY SPRAY: 0.1
+  - products:
+      KID TOYS: 0.5
+      ICE CREAM: 0.1
+  - products:
+      PASTA: 0.6
+      KETCHUP, SAUCES, & MAYONNAISE: 0.1
+demographic_modifier:
+  - age_min: 0
+    age_max: 5
+    products:
+      KID TOYS: 20.0
+      BABY FOOD: 60.0
+      DIAPERS: 40.0
+  - age_min: 5
+    age_max: 16
+    products:
+      ICE CREAM: 2.0
+      MILKS: 2.0
+      KID TOYS: 40.0
+  - gender: FEMALE
+    age_min: 16
+    age_max: 55
+    products:
+      COFFEE: 0.5
+      BREAKFAST BARS: 5.0
+      DISH SOAP: 2.0
+      DETERGENTS & SOFTENERS: 2.5
+  - gender: MALE
+    age_min: 16
+    age_max: 55
+    products:
+      CIGARETTES: 10.0
+      COFFEE: 1.5
+      ENERGY DRINKS & SPORT DRINKS: 1.5
+      SHAVING RAZORS: 10.0
+      GALOON WATER: 5.0
+      BATTERIES: 5.0
+      HARDWARE TOOLKIT: 5.0
+  - age_min: 55
+    age_max: 70
+    products:
+      MEDICINES: 5.0
+      VITAMIN & SUPLEMENTS: 5.0
+categories:
+  - name: BEVERAGES
+    products:
+    - name: SOFT DRINKS
+      modifier: 0.2
+      interval_days_need: 14
+      skus:
+        - name: Coca-Cola Original (250ml)
+          brand: Coca-Cola
+          price: 0.31
+          cost: 0.25
+          pax: 1
+        - name: Coca-Cola Original (1000ml)
+          brand: Coca-Cola
+          price: 0.94
+          cost: 0.81
+          pax: 4
+        - name: Sprite Lemon (250ml)
+          brand: Sprite
+          price: 0.31
+          cost: 0.25
+          pax: 1
+        - name: Sprite Lemon (1000ml)
+          brand: Sprite
+          price: 0.94
+          cost: 0.81
+          pax: 4
+    - name: MILKS
+      modifier: 0.25
+      interval_days_need: 14
+      skus:
+        - name: Ultramilk Vanilla Milk UHT (250ml)
+          brand: Ultramilk
+          price: 0.34
+          cost: 0.28
+          pax: 1
+        - name: Ultramilk Strawberry Milk UHT (250ml)
+          brand: Ultramilk
+          price: 0.34
+          cost: 0.28
+          pax: 1
+        - name: Ultramilk Chocolate Milk UHT (250ml)
+          brand: Ultramilk
+          price: 0.34
+          cost: 0.28
+          pax: 1
+        - name: Greenfields Fresh Milk UHT (1000ml)
+          brand: Greenfields
+          price: 1.50
+          cost: 1.25
+          pax: 4
+        - name: Frisian Flags Fresh Milk UHT (1000ml)
+          brand: Frisian Flags
+          price: 1.37
+          cost: 1.19
+          pax: 4
+    - name: BOTTLED WATERS
+      modifier: 0.5
+      interval_days_need: 3
+      skus:
+        - name: Aqua Bottled Mineral Water (600ml)
+          brand: Aqua
+          price: 0.25
+          cost: 0.19
+          pax: 1
+        - name: Aqua Bottled Mineral Water (1500ml)
+          brand: Aqua
+          price: 0.5
+          cost: 0.41
+          pax: 4
+        - name: Le Minerale Bottled Mineral Water (600ml)
+          brand: Le Minerale
+          price: 0.22
+          cost: 0.19
+          pax: 1
+    - name: COFFEE
+      modifier: 0.3
+      interval_days_need: 7
+      skus:
+        - name: ABC Milk Coffee (350ml)
+          brand: ABC
+          price: 0.22
+          cost: 0.17
+          pax: 1
+        - name: ABC Aren Sugar Coffee ABC (350ml)
+          brand: ABC
+          price: 0.22
+          cost: 0.17
+          pax: 1
+        - name: Kopi Kenangan Milk Coffee (400ml)
+          brand: Kopi Kenangan
+          price: 0.44
+          cost: 0.37
+          pax: 1
+        - name: Kopi Kenangan Avocado Delight (400ml)
+          brand: Kopi Kenangan
+          price: 0.44
+          cost: 0.37
+          pax: 1
+        - name: Nescafe Original (400ml)
+          brand: Nescafe
+          price: 0.5
+          cost: 0.41
+          pax: 1
+        - name: Nescafe Latte (400ml)
+          brand: Nescafe
+          price: 0.5
+          cost: 0.41
+          pax: 1
+    - name: YOGURTS & MILKSHAKES
+      modifier: 0.1
+      interval_days_need: 30
+      skus:
+        - name: Cimory Yoghurt Strawberry (350ml)
+          brand: Cimory
+          price: 0.44
+          cost: 0.37
+          pax: 1
+        - name: Cimory Yoghurt Mixed Berries (250ml)
+          brand: Cimory
+          price: 0.44
+          cost: 0.37
+          pax: 1
+        - name: Cimory Yoghurt Mixed Fruits (350ml)
+          brand: Cimory
+          price: 0.44
+          cost: 0.37
+          pax: 1
+    - name: FRUIT JUICES
+      modifier: 0.05
+      interval_days_need: 30
+      skus:
+        - name: Buavita Guava Juice (350ml)
+          brand: Buavita
+          price: 0.5
+          cost: 0.41
+          pax: 1
+        - name: Buavita Guava Juice (1000ml)
+          brand: Buavita
+          price: 2.06
+          cost: 1.87
+          pax: 4
+    - name: ENERGY DRINKS & SPORT DRINKS
+      modifier: 0.1
+      interval_days_need: 14
+      skus:
+        - name: Pocari Sweat (500ml)
+          brand: Pocari
+          price: 0.37
+          cost: 0.34
+          pax: 1
+        - name: Pocari Sweat (1500ml)
+          brand: Pocari
+          price: 0.87
+          cost: 0.78
+          pax: 4
+    - name: TEA
+      modifier: 0.2
+      interval_days_need: 14
+      skus:
+        - name: Fresh Tea Honey (500ml)
+          brand: Fresh Tea
+          price: 0.25
+          cost: 0.22
+          pax: 1
+        - name: Fresh Tea Jasmine (500ml)
+          brand: Fresh Tea
+          price: 0.25
+          cost: 0.22
+          pax: 1
+        - name: Sosro Bottled Tea Original (500ml)
+          brand: Sosro
+          price: 0.44
+          cost: 0.37
+          pax: 1
+        - name: Sosro Bottled Tea Low Sugar (500ml)
+          brand: Sosro
+          price: 0.44
+          cost: 0.37
+          pax: 1
+  - name: SNACKS
+    products:
+    - name: ICE CREAMS
+      modifier: 0.05
+      interval_days_need: 21
+      skus:
+        - name: Aice Strawberry Mochi Ice Cream
+          brand: Aice
+          price: 0.31
+          cost: 0.25
+          pax: 1
+        - name: Aice Durian Mochi Ice Cream
+          brand: Aice
+          price: 0.31
+          cost: 0.25
+          pax: 1
+        - name: Walls Vanilla Strawberry Ice Cream Cup
+          brand: Walls
+          price: 0.44
+          cost: 0.34
+          pax: 1
+        - name: Walls Vanilla Chocolate Ice Cream Cup
+          brand: Walls
+          price: 0.44
+          cost: 0.34
+          pax: 1
+    - name: CHIPS
+      modifier: 0.1
+      interval_days_need: 21
+      skus:
+        - name: Lays Beef Barbeque Potato Chips
+          brand: Lays
+          price: 1.09
+          cost: 0.94
+          pax: 1
+        - name: Lays Roasted Corn Potato Chips
+          brand: Lays
+          price: 1.09
+          cost: 0.94
+          pax: 1
+    - name: COOKIES & CRACKERS
+      modifier: 0.05
+      interval_days_need: 45
+      skus:
+        - name: Good Days Chocolate Chips
+          brand: Good Days
+          price: 0.94
+          cost: 0.84
+          pax: 1
+        - name: Chocolatos Wafer Roll
+          brand: Chocolatos
+          price: 0.81
+          cost: 0.75
+          pax: 1
+    - name: CHOCOLATE BARS
+      modifier: 0.05
+      interval_days_need: 45
+      skus:
+        - name: Silverqueen Almond Chocolate Bar
+          brand: Silverqueen
+          price: 1.43
+          cost: 1.25
+          pax: 1
+        - name: Silverqueen Hazelnut Chocolate Bar
+          brand: Silverqueen
+          price: 1.43
+          cost: 1.25
+          pax: 1
+    - name: BREAKFAST BARS
+      modifier: 0.01
+      interval_days_need: 30
+      skus:
+        - name: Granobar Hundred Seeds Snack Bar
+          brand: Granobar
+          price: 0.50
+          cost: 0.44
+          pax: 1
+    - name: CANDIES
+      modifier: 0.05
+      interval_days_need: 30
+      skus:
+        - name: Yupi Strawberry Kiss Gummy
+          brand: Yupi
+          price: 0.78
+          cost: 0.69
+          pax: 2
+        - name: Yupi Burger Gummy
+          brand: Yupi
+          price: 0.94
+          cost: 0.84
+          pax: 2
+    - name: CHEWING GUMS
+      modifier: 0.01
+      interval_days_need: 60
+      skus:
+        - name: Big Babol Tutti Frutti Bubble Gum
+          brand: Big Babol
+          price: 0.5
+          cost: 0.44
+          pax: 2
+  - name: RAW
+    products:
+    - name: EGGS
+      modifier: 0.2
+      interval_days_need: 21
+      skus:
+        - name: Raw Eggs (6 pcs)
+          brand: Farmer's Market
+          price: 0.94
+          cost: 0.78
+          pax: 2
+        - name: Premium Raw Eggs (6 pcs)
+          brand: Farmer's Market
+          price: 1.31
+          cost: 1.09
+          pax: 2
+    - name: CEREALS
+      modifier: 0.15
+      interval_days_need: 30
+      skus:
+        - name: Nestle Koko Krunch Duo Chocolate Cereal
+          brand: Nestle
+          price: 1.37
+          cost: 1.25
+          pax: 4
+    - name: CHEESES
+      modifier: 0.05
+      interval_days_need: 60
+      skus:
+        - name: Kraft Cheddar Cheese
+          brand: Kraft
+          price: 1.09
+          cost: 0.94
+          pax: 4
+    - name: SEASONINGS
+      modifier: 0.2
+      interval_days_need: 60
+      skus:
+        - name: Racik Fried Chicken Seasoning Powder
+          brand: Racik
+          price: 0.68
+          cost: 0.60
+          pax: 4
+        - name: Royko Chicken Broth Seasoning Powder
+          brand: Royko
+          price: 0.75
+          cost: 0.69
+          pax: 4
+        - name: Royko Beef Broth Seasoning Powder
+          brand: Royko
+          price: 0.75
+          cost: 0.69
+          pax: 4
+    - name: PASTA
+      modifier: 0.01
+      interval_days_need: 90
+      skus:
+        - name: La Fonte Spaghetti
+          brand: La Fonte
+          price: 0.62
+          cost: 0.56
+          pax: 2
+    - name: JAMS
+      modifier: 0.05
+      interval_days_need: 60
+      skus:
+        - name: Morin Peanut Butter
+          brand: Morin
+          price: 1.56
+          cost: 1.43
+          pax: 4
+        - name: Morin Blueberry Jam
+          brand: Morin
+          price: 1.56
+          cost: 1.43
+          pax: 4
+    - name: FRESH FRUITS
+      modifier: 0.1
+      interval_days_need: 30
+      skus:
+        - name: Bananas (6 pcs)
+          brand: Farmer's Market
+          price: 0.84
+          cost: 0.75
+          pax: 2
+        - name: Melon
+          brand: Farmer's Market
+          price: 2.81
+          cost: 2.50
+          pax: 4
+    - name: FROZEN FOOD
+      modifier: 0.15
+      interval_days_need: 30
+      skus:
+        - name: Fiesta Chicken Nugget
+          brand: Fiesta
+          price: 4.37
+          cost: 4.00
+          pax: 2
+        - name: Fiesta Fried Chicken
+          brand: Fiesta
+          price: 4.74
+          cost: 4.37
+          pax: 4
+    - name: BREAD
+      modifier: 0.1
+      interval_days_need: 14
+      skus:
+        - name: Sari Roti Original White Bread
+          brand: Sari Roti
+          price: 0.84
+          cost: 0.75
+          pax: 2
+        - name: Sari Roti Chocolate Sandwich
+          brand: Sari Roti
+          price: 0.31
+          cost: 0.25
+          pax: 1
+    - name: RICE
+      modifier: 0.3
+      interval_days_need: 30
+      skus:
+        - name: Rice Pack (5kg)
+          brand: Farmer's Market
+          price: 4.05
+          cost: 3.74
+          pax: 2
+        - name: Premium Rice Pack (5kg)
+          brand: Farmer's Market
+          price: 4.99
+          cost: 4.52
+          pax: 2
+    - name: SALT & SUGAR
+      modifier: 0.25
+      interval_days_need: 45
+      skus:
+        - name: Gunung Mas Table Salt (200g)
+          brand: Gunung Mas
+          price: 0.31
+          cost: 0.25
+          pax: 2
+        - name: Gulaku White Sugar (1kg)
+          brand: Gulaku
+          price: 0.84
+          cost: 0.75
+          pax: 2
+    - name: COOKING OIL
+      modifier: 0.2
+      interval_days_need: 60
+      skus:
+        - name: Palma Cooking Oil (1kg)
+          brand: Palma
+          price: 2.18
+          cost: 2.00
+          pax: 2
+    - name: BUTTER & MARGARINE
+      modifier: 0.1
+      interval_days_need: 60
+      skus:
+        - name: Blueband Margarine
+          brand: Blueband
+          price: 1.19
+          cost: 1.06
+          pax: 2
+    - name: NOODLES
+      modifier: 0.4
+      interval_days_need: 14
+      skus:
+        - name: Indomie Ayam Bawang Instant Noodle
+          brand: Indomie
+          price: 0.22
+          cost: 0.17
+          pax: 1
+        - name: Indomie Kari Ayam Instant Noodle
+          brand: Indomie
+          price: 0.22
+          cost: 0.17
+          pax: 1
+        - name: Indomie Soto Ayam Instant Noodle
+          brand: Indomie
+          price: 0.22
+          cost: 0.17
+          pax: 1
+    - name: FLOUR
+      modifier: 0.05
+      interval_days_need: 90
+      skus:
+        - name: Segitiga Biru Flour (500g)
+          brand: Segitiga Biru
+          price: 0.94
+          cost: 0.81
+          pax: 4
+    - name: KETCHUP, SAUCES, & MAYONNAISE
+      modifier: 0.1
+      interval_days_need: 45
+      skus:
+        - name: Bango Sweet Soy Ketchup
+          brand: Bango
+          price: 1.68
+          cost: 1.56
+          pax: 2
+        - name: ABC Chili Sauce
+          brand: ABC
+          price: 1.19
+          cost: 1.06
+          pax: 2
+    - name: BABY FOOD
+      modifier: 0.01
+      interval_days_need: 30
+      skus:
+        - name: Milna Baby Biscuits
+          brand: Milna
+          price: 1.25
+          cost: 1.12
+          pax: 1
+    - name: GALOON WATER
+      interval_days_need: 21
+      skus:
+        - name: Aqua Refill Mineral Water Galoon
+          brand: Aqua
+          price: 1.25
+          cost: 1.15
+          pax: 2
+        - name: Le Minerale Disposable Mineral Water Galoon
+          brand: Le Minerale
+          price: 0.94
+          cost: 0.87
+          pax: 2
+  - name: MEAL
+    products:
+      - name: FRIED CHICKEN
+        modifier: 0.05
+        interval_days_need: 14
+        skus:
+          - name: Thigh/Wing Fried Chicken
+            brand: Farmer's Market
+            price: 1.40
+            cost: 1.25
+            pax: 1
+          - name: Breast Fried Chicken
+            brand: Farmer's Market
+            price: 1.56
+            cost: 1.34
+            pax: 1
+      - name: BURGERS
+        modifier: 0.025
+        interval_days_need: 14
+        skus:
+          - name: Beef Burgers
+            brand: Farmer's Market
+            price: 1.56
+            cost: 1.34
+            pax: 1
+      - name: RICE BOWL
+        modifier: 0.05
+        interval_days_need: 14
+        skus:
+          - name: Roasted Beef Rice Bowl
+            brand: Farmer's Market
+            price: 1.56
+            cost: 1.34
+            pax: 1
+          - name: Chicken Curry Rice Bowl
+            brand: Farmer's Market
+            price: 1.56
+            cost: 1.34
+            pax: 1
+  - name: HYEGIENES
+    products:
+      - name: BODY SOAP
+        modifier: 0.2
+        interval_days_need: 30
+        skus:
+          - name: Lifebuoy Bar Soap
+            brand: Lifebuoy
+            price: 0.78
+            cost: 0.69
+            pax: 1
+          - name: Lifebuoy Soft Soap
+            brand: Lifebuoy
+            price: 1.93
+            cost: 1.81
+            pax: 2
+      - name: DISH SOAP
+        modifier: 0.2
+        interval_days_need: 60
+        skus:
+          - name: Sunlight Lemon Dish Soap
+            brand: Sunlight
+            price: 0.75
+            cost: 0.69
+            pax: 2
+      - name: DETERGENTS & SOFTENERS
+        modifier: 0.15
+        interval_days_need: 90
+        skus:
+          - name: Rinso Cloth Detergents Powder
+            brand: Rinso
+            price: 3.00
+            cost: 2.81
+            pax: 2
+          - name: Molto Softeners
+            brand: Molto
+            price: ...
+            cost: ...
+            pax: 2
+      - name: TISSUES & TOILET PAPERS
+        modifier: 0.1
+        interval_days_need: 60
+        skus:
+          - name: Nice Facial Tissue (250 sheets)
+            brand: Nice
+            price: 1.87
+            cost: 1.68
+            pax: 2
+      - name: SHAVING RAZORS
+        modifier: 0.01
+        interval_days_need: 90
+        skus:
+          - name: Gilette Double Razor
+            brand: Gilette
+            price: 2.00
+            cost: 1.87
+            pax: 1
+          - name: Gilette Triple Razor
+            brand: Gilette
+            price: 3.00
+            cost: 2.81
+            pax: 1
+      - name: PERFUME & BODY SPRAY
+        modifier: 0.1
+        interval_days_need: 90
+        skus:
+          - name: Axe Body Spray
+            brand: Axe
+            price: 2.03
+            cost: 1.87
+            pax: 1
+      - name: SHAMPOO
+        interval_days_need: 60
+        skus:
+          - name: Lifebuoy Anti-Dandruff Shampoo
+            brand: Lifebuoy
+            price: 2.50
+            cost: 2.37
+            pax: 1
+      - name: TOOTHPASTE
+        modifier: 0.3
+        interval_days_need: 90
+        skus:
+          - name: Pepsodent Fluoride Toothpaste
+            brand: Pepsodent
+            price: 1.31
+            cost: 1.22
+            pax: 2
+          - name: Ciptadent Fluoride Toothpaste
+            brand: Ciptadent
+            price: 1.25
+            cost: 1.19
+            pax: 2
+      - name: TOOTHBRUSH
+        modifier: 0.2
+        interval_days_need: 120
+        skus:
+          - name: Pepsodent Soft Toothbrush
+            brand: Pepsodent
+            price: 1.68
+            cost: 1.56
+            pax: 1
+      - name: DIAPERS
+        modifier: 0.01
+        interval_days_need: 30
+        skus:
+          - name: Mamy Poko Pants Baby Diapers
+            brand: Mamy Poko
+            price: 3.74
+            cost: 3.37
+            pax: 1
+  - name: MEDICINES
+    products:
+      - name: MEDICINES
+        modifier: 0.025
+        interval_days_need: 90
+        skus:
+          - name: Panadol Paracetamol Tablet
+            brand: Panadol
+            price: 0.94
+            cost: 0.87
+            pax: 1
+          - name: Komix OBH Cough Syrup
+            brand: Komix
+            price: 0.19
+            cost: 0.16
+            pax: 1
+      - name: VITAMIN & SUPLEMENTS
+        modifier: 0.05
+        interval_days_need: 45
+        skus:
+          - name: Vitamin-C Tablet (2 pcs)
+            brand: Vitamin-C
+            price: 0.31
+            cost: 0.25
+            pax: 1
+          - name: Vitamin-C Lemon Water (200ml)
+            brand: Vitamin-C
+            price: 0.50
+            cost: 0.44
+            pax: 1
+  - name: OTHER
+    products:
+      - name: BATTERIES
+        modifier: 0.025
+        interval_days_need: 90
+        skus:
+          - name: Alkaline AA Batteries (4 pcs)
+            brand: Alkaline
+            price: 1.65
+            cost: 1.56
+            pax: 2
+          - name: Energizer AA Batteries (4 pcs)
+            brand: Energizer
+            price: 2.06
+            cost: 1.96
+            pax: 2
+      - name: CIGARETTES
+        modifier: 0.01
+        interval_days_need: 7
+        skus:
+          - name: Sampoerna Mild Cigarettes
+            brand: Sampoerna
+            price: 2.31
+            cost: 2.18
+            pax: 1
+          - name: Djarum Super Cigarettes
+            brand: Djarum
+            price: 1.75
+            cost: 1.65
+            pax: 1
+      - name: KID TOYS
+        modifier: 0.01
+        interval_days_need: 60
+        skus:
+          - name: Play-Doh Modeling Compound
+            brand: Play-Doh
+            price: 2.18
+            cost: 1.87
+            pax: 1
+      - name: DISPOSABLE CUPS & UTENSILS
+        modifier: 0.01
+        interval_days_need: 365
+        skus:
+          - name: Plastic Plate
+            brand: Farmer's Market
+            price: 2.03
+            cost: 1.87
+            pax: 2
+      - name: CLEANING TOOLS
+        modifier: 0.1
+        interval_days_need: 365
+        skus:
+          - name: Scotch-Brite Scrub Sponge
+            brand: Scotch-Brite
+            price: 0.87
+            cost: 0.78
+            pax: 2
+          - name: Dragon Broom
+            brand: Dragon
+            price: 1.87
+            cost: 1.56
+            pax: 2

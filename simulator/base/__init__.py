@@ -1,2 +1,3 @@
-from .agent import Agent
-from .environment import Environment, DatetimeClock, StepClock
+from .agent import Agent, Community
+from .clock import DatetimeClock, StepClock, FPSClock
+from .environment import Environment

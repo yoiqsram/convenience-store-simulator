@@ -52,11 +52,11 @@ associations:
       PERFUME & BODY SPRAY: 0.1
   - products:
       KID TOYS: 0.5
-      ICE CREAM: 0.1
+      ICE CREAMS: 0.1
   - products:
       PASTA: 0.6
       KETCHUP, SAUCES, & MAYONNAISE: 0.1
-demographic_modifier:
+demographic_modifiers:
   - age_min: 0
     age_max: 5
     products:
@@ -66,7 +66,7 @@ demographic_modifier:
   - age_min: 5
     age_max: 16
     products:
-      ICE CREAM: 2.0
+      ICE CREAMS: 2.0
       MILKS: 2.0
       KID TOYS: 40.0
   - gender: FEMALE
@@ -87,7 +87,6 @@ demographic_modifier:
       SHAVING RAZORS: 10.0
       GALOON WATER: 5.0
       BATTERIES: 5.0
-      HARDWARE TOOLKIT: 5.0
   - age_min: 55
     age_max: 70
     products:

@@ -2,22 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import numpy as np
-from datetime import datetime
-from typing import Dict, Iterable, TYPE_CHECKING
+from typing import Any
 
+from .agent import MultiAgentMixin
 from .clock import Clock, DatetimeClock, StepClock
 
-if TYPE_CHECKING:
-    from .agent import Agent
 
-
-class Environment:
+class Environment(MultiAgentMixin):
     def __init__(
             self,
             clock: Clock = None,
             seed: int = None
         ) -> None:
-        self._agents: Dict[int, Agent] = dict()
+        self.__init_step__()
+        self.__init_agents__()
 
         if clock is None:
             clock = StepClock()
@@ -25,38 +23,17 @@ class Environment:
 
         self._rng = np.random.RandomState(seed)
 
-    def current_step(self) -> datetime:
-        return self._clock.current_step()
-
-    @property
-    def agents(self) -> Iterable[Agent]:
-        return self._agents.values()
-
-    def add_agent(self, agent: Agent):
-        if agent.id in self._agents:
-            print(self.agents)
-            raise IndexError(f"Agent '{agent.id}' is already been in the environment.")
-
-        self._agents[agent.id] = agent
-
-    def add_agents(self, agents: Iterable[Agent]):
-        for agent in agents:
-            self.add_agent(agent)
-
-    def remove_agent(self, agent: Agent):
-        if agent.id not in self._agents:
-            raise IndexError()
-
-        del self._agents[agent.id]
-
-    def remove_agents(self, agents: Iterable[Agent]):
-        for agent in agents:
-            self.remove_agent(agent)
-
-    def step(self) -> None:
-        self._clock.step()
+    def step(self) -> Any:
+        current_step = self._clock.step()
         for agent in self._agents.values():
-            agent.step(env=self)
+            if agent.next_step() is not None \
+                    and agent.next_step() > current_step:
+                agent._next_step = agent.step(env=self)
+
+        return self.calculate_next_step()
+
+    def calculate_next_step(self) -> Any:
+        return self._clock.next_step()
 
     async def _run_await(self) -> None:
         self._clock: DatetimeClock

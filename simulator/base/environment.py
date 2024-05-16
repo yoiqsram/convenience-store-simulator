@@ -1,27 +1,26 @@
 from __future__ import annotations
 
 import asyncio
-import numpy as np
 from typing import Any
 
 from .agent import MultiAgentMixin
 from .clock import Clock, DatetimeClock, StepClock
+from .random import RandomGeneratorMixin
 
 
-class Environment(MultiAgentMixin):
+class Environment(MultiAgentMixin, RandomGeneratorMixin):
     def __init__(
             self,
             clock: Clock = None,
             seed: int = None
         ) -> None:
-        self.__init_step__()
         self.__init_agents__()
 
         if clock is None:
             clock = StepClock()
         self._clock = clock
 
-        self._rng = np.random.RandomState(seed)
+        self.__init_rng__(seed)
 
     def step(self) -> Any:
         current_step = self._clock.step()

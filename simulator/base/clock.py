@@ -47,6 +47,7 @@ class Clock(StepMixin):
 class StepClock(Clock):
     def __init__(self, max_step = None) -> None:
         super().__init__()
+
         self._last_step = self._step_count
         self._max_step = max_step
 
@@ -62,12 +63,13 @@ class StepClock(Clock):
 class DatetimeClock(Clock):
     def __init__(
             self,
-            interval: float = 1,
+            interval: float = 1.0,
             speed: float = None,
             initial_datetime: datetime = None,
             max_datetime: datetime = None
         ) -> None:
         super().__init__()
+
         if initial_datetime is None:
             initial_datetime = datetime.now()
         self._last_step = initial_datetime

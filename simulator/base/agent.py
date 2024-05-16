@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-import numpy as np
 import uuid
 from typing import Any, Dict, Iterable, TYPE_CHECKING
 
 from .clock import StepMixin
+from .random import RandomGeneratorMixin
 
 if TYPE_CHECKING:
     from .environment import Environment
 
 
-class Agent(StepMixin):
+class Agent(StepMixin, RandomGeneratorMixin):
     def __init__(self, seed: int = None) -> None:
         self._id = uuid.uuid4().int
-        self._rng = np.random.RandomState(seed)
-
         self.community: Community = None
 
         self.__init_step__()
+        self.__init_rng__(seed)
 
     @property
     def id(self) -> int:
@@ -41,8 +40,11 @@ class Agent(StepMixin):
 
 
 class MultiAgentMixin(StepMixin):
-    def __init_agents__(self) -> None:
+    def __init_agents__(self, agents: Iterable[Agent]) -> None:
+        self.__init_step__()
+
         self._agents: Dict[int, Agent] = dict()
+        self.add_agents(agents)
 
     def agents(self) -> Iterable[Agent]:
         for agent in self._agents.values():
@@ -79,18 +81,10 @@ class Community(Agent, MultiAgentMixin):
             seed: int = None
         ) -> None:
         super().__init__(seed=seed)
-
-        if agents is None:
-            agents = []
-        self._agents: Dict[int, Agent] = {
-            agent.id: agent
-            for agent in agents
-        }
-
-        self._rng = np.random.RandomState(seed)
+        self.__init_agents__(agents)
 
     def step(self, env: Environment) -> Any:
-        current_step = env.current_step()
+        current_step = env.last_step()
         for agent in self._agents.values():
             next_step_ = agent.next_step()
             if next_step_ is not None \

@@ -11,5 +11,4 @@ class EmployeeModel(BaseModel):
     birth_date = DateField()
     birth_place = CharField()
 
-    created_datetime = column_created_datetime()
-    modified_datetime = column_modified_datetime()
+    modified_datetime = DateTimeField()

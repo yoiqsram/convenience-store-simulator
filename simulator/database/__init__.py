@@ -1,6 +1,5 @@
 from datetime import datetime
-from peewee import IntegrityError, DoesNotExist
-from typing import Any, Dict, Type, Union
+from peewee import Database, IntegrityError
 
 from ..context import GlobalContext
 from .base import BaseModel
@@ -11,7 +10,8 @@ from .store import *
 
 
 def create_database():
-    BaseModel._meta.database.create_tables([
+    database: Database = BaseModel._meta.database
+    database.create_tables([
         EmployeeModel,
         PaymentMethodModel,
         OrderModel,
@@ -32,8 +32,55 @@ def create_database():
         GlobalContext.INITIAL_DATE.month,
         GlobalContext.INITIAL_DATE.day
     )
+    populate_items(created_datetime)
+    populate_locations(created_datetime)
 
-    # Populate location from country to subdistrict
+
+def populate_items(created_datetime: datetime):
+    item_config = GlobalContext.get_config_item()
+    for category in item_config['categories']:
+        try:
+            category_record = CategoryModel.create(
+                name=category['name'],
+                created_datetime=created_datetime
+            )
+        except IntegrityError:
+            category_record = (
+                CategoryModel.select()
+                .where(CategoryModel.name == category['name'])
+                .get()
+            )
+
+        for product in category['products']:
+            try:
+                product_record = ProductModel.create(
+                    name=product['name'],
+                    category=category_record.id,
+                    created_datetime=created_datetime
+                )
+            except IntegrityError:
+                product_record = (
+                    ProductModel.select()
+                    .where(ProductModel.name == product['name'])
+                    .get()
+                )
+
+            for sku in product['skus']:
+                try:
+                    SKUModel.create(
+                        name=sku['name'],
+                        brand=sku['brand'],
+                        price=sku['price'],
+                        cost=sku['cost'],
+                        product=product_record.id,
+                        created_datetime=created_datetime,
+                        modified_datetime=created_datetime
+                    )
+                except IntegrityError:
+                    continue
+
+
+def populate_locations(created_datetime: datetime):
     location_config = GlobalContext.get_config_location()
     for country in location_config['countries']:
         try:
@@ -109,90 +156,3 @@ def create_database():
                             )
                         except IntegrityError:
                             continue
-
-    # Populate item from category to sku
-    item_config = GlobalContext.get_config_item()
-    for category in item_config['categories']:
-        try:
-            category_record = CategoryModel.create(
-                name=category['name'],
-                created_datetime=created_datetime
-            )
-        except IntegrityError:
-            category_record = (
-                CategoryModel.select()
-                .where(CategoryModel.name == category['name'])
-                .get()
-            )
-
-        for product in category['products']:
-            try:
-                product_record = ProductModel.create(
-                    name=product['name'],
-                    category=category_record.id,
-                    created_datetime=created_datetime
-                )
-            except IntegrityError:
-                product_record = (
-                    ProductModel.select()
-                    .where(ProductModel.name == product['name'])
-                    .get()
-                )
-
-            for sku in product['skus']:
-                try:
-                    SKUModel.create(
-                        name=sku['name'],
-                        brand=sku['brand'],
-                        price=sku['price'],
-                        cost=sku['cost'],
-                        product=product_record.id,
-                        created_datetime=created_datetime,
-                        modified_datetime=created_datetime
-                    )
-                except IntegrityError:
-                    continue
-
-
-class ModelMixin:
-    __model__: Type[BaseModel]
-
-    def init_model(
-            self,
-            unique_identifiers: Dict[str, Any],
-            **kwargs
-        ) -> None:
-        self._unique_identifiers = unique_identifiers
-
-        self._record: BaseModel
-        try:
-            query = self.__class__.__model__.select()
-            for name, value in self._unique_identifiers.items():
-                query = query.where(getattr(self.__class__.__model__, name) == value)
-
-            self._record = query.get()
-
-            for name, value in kwargs.items():
-                if hasattr(self._record, name) \
-                        and getattr(self._record, name) != value:
-                    setattr(self._record, name, value)
-
-        except DoesNotExist:
-            self._record = self.__class__.__model__(**kwargs)
-
-    @property
-    def record(self) -> int:
-        return self._record
-
-    @property
-    def created_datetime(self) -> Union[datetime, None]:
-        return self._record.created_datetime
-
-    @created_datetime.setter
-    def created_datetime(self, value: datetime) -> None:
-        self._record.created_datetime = value
-
-        if self._record.id is None:
-            self._record.save(force_insert=True)
-        else:
-            self._record.save()

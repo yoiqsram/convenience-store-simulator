@@ -15,8 +15,7 @@ class CountryModel(BaseModel):
     code = CharField(unique=True)
     name = CharField()
 
-    created_datetime = column_created_datetime()
-    modified_datetime = column_modified_datetime()
+    modified_datetime = DateTimeField()
 
     class Meta:
         table_name = 'countries'
@@ -32,8 +31,7 @@ class ProvinceModel(BaseModel):
     code = CharField(unique=True)
     name = CharField()
 
-    created_datetime = column_created_datetime()
-    modified_datetime = column_modified_datetime()
+    modified_datetime = DateTimeField()
 
     class Meta:
         table_name = 'provinces'
@@ -49,8 +47,7 @@ class CityModel(BaseModel):
     code = CharField(unique=True)
     name = CharField()
 
-    created_datetime = column_created_datetime()
-    modified_datetime = column_modified_datetime()
+    modified_datetime = DateTimeField()
 
     class Meta:
         table_name = 'cities'
@@ -66,8 +63,7 @@ class DistrictModel(BaseModel):
     code = CharField(unique=True)
     name = CharField()
 
-    created_datetime = column_created_datetime()
-    modified_datetime = column_modified_datetime()
+    modified_datetime = DateTimeField()
 
     class Meta:
         table_name = 'districts'
@@ -83,8 +79,7 @@ class SubdistrictModel(BaseModel):
     code = CharField(unique=True)
     name = CharField()
 
-    created_datetime = column_created_datetime()
-    modified_datetime = column_modified_datetime()
+    modified_datetime = DateTimeField()
 
     class Meta:
         table_name = 'subdistricts'
@@ -99,7 +94,7 @@ class StoreModel(BaseModel):
         unique=True
     )
 
-    created_datetime = column_created_datetime()
+    modified_datetime = DateTimeField()
 
     class Meta:
         table_name = 'stores'

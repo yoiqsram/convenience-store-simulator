@@ -12,7 +12,6 @@ __all__ = [
 class PaymentMethodModel(BaseModel):
     id = AutoField(primary_key=True)
     name = CharField(unique=True)
-    created_datetime = column_created_datetime()
 
     class Meta:
         table_name = 'payment_methods'
@@ -25,7 +24,6 @@ class OrderModel(BaseModel):
     customer_age = CharField()
     payment_method = ForeignKeyField(PaymentMethodModel, null=True)
 
-    created_datetime = column_created_datetime()
     paid_datetime = DateTimeField(null=True)
 
     class Meta:

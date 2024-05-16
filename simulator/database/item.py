@@ -10,7 +10,6 @@ __all__ = [
 class CategoryModel(BaseModel):
     id = AutoField(primary_key=True)
     name = CharField(unique=True)
-    created_datetime = column_created_datetime()
 
     class Meta:
         table_name = 'categories'
@@ -20,7 +19,6 @@ class ProductModel(BaseModel):
     id = AutoField(primary_key=True)
     category = ForeignKeyField(CategoryModel)
     name = CharField(unique=True)
-    created_datetime = column_created_datetime()
 
     class Meta:
         table_name = 'products'
@@ -34,8 +32,7 @@ class SKUModel(BaseModel):
     price = FloatField()
     cost = FloatField()
 
-    created_datetime = column_created_datetime()
-    modified_datetime = column_modified_datetime()
+    modified_datetime = DateTimeField()
 
     class Meta:
         table_name = 'skus'

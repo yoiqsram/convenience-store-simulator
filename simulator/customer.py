@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import numpy as np
 from datetime import date, datetime, timedelta
-from typing import Dict, Tuple, Union, TYPE_CHECKING
+from typing import Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
 
 from .base import Agent
-from .checkout import Checkout, PaymentMethod
+from .checkout import Checkout, CheckoutStatus, PaymentMethod
+from .context import GlobalContext
 from .item import Product, SKU
-from .population import Family, FamilyStatus
+from .population import Family, FamilyStatus, Person
 
 if TYPE_CHECKING:
+    from .simulation import Simulator
     from .store import Store
 
 
@@ -36,21 +38,9 @@ def random_payment_method_config(
     return payment_method_prob, payment_method_time
 
 
-def random_checkout_hour(
-        min_hour: int,
-        max_hour: int,
-        rng: np.random.RandomState
-    ) -> None:
-    peak_hours = [12.5, 19.0]
-    peak_hour = rng.choice(peak_hours)
-    return np.clip(
-        rng.normal(peak_hour, peak_hour * 0.25),
-        min_hour,
-        max_hour
-    )
-
-
 class Customer(Agent):
+    __repr_attrs__ = ( 'id', 'last_step', 'current_checkout' )
+
     def __init__(
             self,
             family: Family,
@@ -58,166 +48,234 @@ class Customer(Agent):
         ) -> None:
         super().__init__(seed=seed)
 
+        self.community: Store
         self.family = family
 
-        if len(Product.all()) == 0:
-            Product.load()
-
-        self.products_days_left: Dict[str, int] = {
-            product.name: self._rng.random_integers(0, product.interval_days_need)
+        self.product_need_days_left: Dict[str, int] = {
+            product.name: self._rng.randint(0, product.interval_days_need)
             for product in Product.all()
         }
-
         self.payment_method_prob, self.payment_method_time = random_payment_method_config(self._rng)
-        self._last_update_date: date = None
 
-    def __repr__(self) -> str:
-        return f'Customer(n_members={self.family.n_members})'
+        self.current_checkout: Union[Checkout, None] = None
 
-    def step(self, env: Store) -> None:
-        self.update_product_days_left(env.current_step().date())
+        self._last_updated_date: date = None
 
-        if self.next_step is None:
-            self.next_step, self._next_days_left = self.calculate_next_checkout(
-                env.current_step(),
-                min_hour=env.open_hour,
-                max_hour=env.close_hour
-            )
+    @property
+    def n_members(self) -> int:
+        return self.family.n_members
 
-        super().step(env)
+    def update(self, last_date: date) -> None:
+        if self._last_updated_date is not None:
+            days_to_go = (last_date - self._last_updated_date).days
+            if days_to_go < 1:
+                return
 
-        if self.next_step < env.current_step():
-            self.checkout(env)
-            self.next_step, self._next_days_left = None, None
+            for product_name, days_left in self.product_need_days_left.copy().items():
+                self.product_need_days_left[product_name] = max(0, days_left - days_to_go)
 
-    def update_product_days_left(self, a_date: date) -> None:
-        self._last_update_date = a_date
-        for product_name, days_left in self.products_days_left.copy().items():
-            if self._last_update_date is not None \
-                    and a_date <= self._last_update_date \
-                    and days_left is not None \
-                    and days_left > 0:
-                self.products_days_left[product_name] -= 1
+            self._last_updated_date = last_date
 
-            product = Product.get(product_name)
-            if self.products_days_left[product_name] is None:
-                self.products_days_left[product_name] = self._rng.poisson(
+        if self._next_step is None:
+            self._next_step = self.calculate_next_order_datetime(last_date)
+
+    def step(self, env: Simulator) -> Tuple[datetime, Union[datetime, None]]:
+        last_datetime, next_datetime = super().step(env)
+        if next_datetime is None:
+            return last_datetime, next_datetime
+
+        last_date = last_datetime.date()
+
+        if self.current_checkout is None:
+            # Randomize buyer representative and get the family needs
+            buyer = self.random_buyer(last_date)
+            payment_method = self.random_payment_method()
+            needed_products = self.get_needed_products()
+            for product in needed_products:
+                self.product_need_days_left[product.name] = self._rng.poisson(
                     product.interval_days_need
                 )
 
-    def calculate_next_checkout(
-            self,
-            a_datetime: datetime,
-            min_hour: int,
-            max_hour: int
-        ) -> Tuple[Union[datetime, None], int]:
-        n = 1 + int(self._rng.poisson(2))
+            # Calculate conversion from needs to purchase from the store, then checkout
+            checkout_products = self.get_checkout_products(needed_products, buyer, last_date)
 
-        try:
-            nearest_products_days_left = sorted(self.products_days_left.values())[:n]
-        except:
-            print(self.products_days_left)
-            raise
-        days_to_go = int(max(nearest_products_days_left))
-        next_datetime = a_datetime + timedelta(days=days_to_go)
+            # Skip checkout if have no product to purchase, wouldn't spend, store is close or store is open but full
+            if len(checkout_products) == 0 \
+                    or self._rng.random() > self.family.spending_rate \
+                    or not self.community.is_open() \
+                    or self.community.is_full_queue():
+                self._next_step = self.calculate_next_order_datetime(last_date)
+                return last_datetime, self._next_step
 
-        checkout_hour = random_checkout_hour(
-            min_hour=min_hour,
-            max_hour=max_hour,
-            rng=self._rng
+            # Collecting checkout products in the store
+            checkout_items = self.get_checkout_items(checkout_products)
+            self.current_checkout = Checkout(
+                checkout_items,
+                buyer,
+                payment_method,
+                last_datetime
+            )
+            collection_time = self.calculate_collection_time(self.current_checkout)
+            self._next_step = last_datetime + timedelta(seconds=collection_time)
+            return last_datetime, self._next_step
+
+        # Queuing checkout
+        elif self.current_checkout.status == CheckoutStatus.COLLECTING:
+            self.community.add_checkout_queue(self.current_checkout)
+            self.current_checkout.set_status(
+                CheckoutStatus.QUEUING,
+                last_datetime
+            )
+
+        # Paying checkout
+        elif self.current_checkout.status == CheckoutStatus.WAITING_PAYMENT:
+            self.current_checkout.set_status(
+                CheckoutStatus.DOING_PAYMENT,
+                last_datetime
+            )
+            payment_time = self.calculate_payment_time(self.current_checkout)
+            self._next_step = last_datetime + timedelta(seconds=payment_time)
+            return last_datetime, self._next_step
+
+        # Complete the payment
+        elif self.current_checkout.status == CheckoutStatus.DOING_PAYMENT:
+            self.current_checkout.set_status(
+                CheckoutStatus.PAID,
+                last_datetime
+            )
+
+        # Leave the store
+        elif self.current_checkout.status == CheckoutStatus.DONE:
+            self.current_checkout = None
+            self._next_step = self.calculate_next_order_datetime(last_date)
+            return last_datetime, self._next_step
+
+        return last_datetime, next_datetime
+
+    def calculate_next_order_datetime(self, last_date: date) -> datetime:
+        n = 1 + int(self._rng.poisson(7))
+        most_needed_products = sorted(self.product_need_days_left.values())[:n]
+        max_need_days_left = int(max(most_needed_products))
+
+        order_datetime = (
+            datetime(last_date.year, last_date.month, last_date.day)
+            + timedelta(days=max_need_days_left)
+            + timedelta(hours=self._rng.normal(self._rng.choice(GlobalContext.STORE_PEAK_HOURS), 1.0))
         )
-        checkout_minutes = (checkout_hour % 1) * 60
-        checkout_seconds = (checkout_minutes % 1) * 60
+        return order_datetime
 
-        next_datetime = datetime(
-            next_datetime.year,
-            next_datetime.month,
-            next_datetime.day,
-            int(checkout_hour),
-            int(checkout_minutes),
-            int(checkout_seconds)
+    def random_buyer(self, last_date: date) -> Person:
+        family_weight = {
+            FamilyStatus.SINGLE: 1,
+            FamilyStatus.PARENT: 8,
+            FamilyStatus.CHILD: 1
+        }
+
+        potential_buyers = [
+            member
+            for member in self.family.members
+            if member.age(last_date) > 12
+        ]
+        potential_buyer_weights = [
+            family_weight[member.status]
+            for member in potential_buyers
+        ]
+
+        return self._rng.choice(
+            potential_buyers,
+            p=np.array(potential_buyer_weights) / np.sum(potential_buyer_weights)
         )
-        return next_datetime, days_to_go
 
-    def calculate_payment(self) -> Tuple[PaymentMethod, float]:
-        payment_method = self._rng.choice(
+    def random_payment_method(self) -> PaymentMethod:
+        return self._rng.choice(
             list(self.payment_method_prob.keys()),
             p=list(self.payment_method_prob.values())
         )
-        payment_time = self.payment_method_time[payment_method]
-        return payment_method, payment_time
 
-    def checkout(self, env: Store) -> None:
-        a_date = env.current_step().date()
-        member_to_buyer_weight: Dict[int, int] = dict()
-        for member in self.family.members:
-            if member.status == FamilyStatus.SINGLE:
-                member_to_buyer_weight[member.id] = 1
-            elif member.status == FamilyStatus.PARENT:
-                member_to_buyer_weight[member.id] = self._rng.random_integers(5, 10)
-            elif member.status == FamilyStatus.CHILD and member.age(a_date) > 12:
-                member_to_buyer_weight[member.id] = self._rng.random_integers(0, 3)
+    def get_needed_products(self) -> List[Product]:
+        days_to_go = self._rng.poisson(7)
+        return [
+            Product.get(product_name)
+            for product_name, days_left in self.product_need_days_left.items()
+            if days_left <= days_to_go
+        ]
 
-        total_weight = np.sum(list(member_to_buyer_weight.values()))
-        buyer_member_id = self._rng.choice(
-            list(member_to_buyer_weight.keys()),
-            p=[
-                weight / total_weight
-                for weight in member_to_buyer_weight.values()
-            ]
-        )
-        buyer = self.family.get(buyer_member_id)
-
-        quantities = []
-        potential_products = {
-            product_name: (
-                Product.get(product_name).modifier * 0.25,
-                self._rng.random()
-            )
-            for product_name, days_left in self.products_days_left.items()
-            if days_left <= self._next_days_left
-        }
-
-        associated_potential_products = dict()
-        for product_name in potential_products.copy():
-            product = Product.get(product_name)
-            for associated_product_name, value in product.associations.items():
-                if associated_product_name not in associated_potential_products:
-                    associated_potential_products[associated_product_name] = value
-                elif value > associated_potential_products[associated_product_name]:
-                    associated_potential_products[associated_product_name] = value
-
-                if associated_product_name not in potential_products:
-                    potential_products[associated_product_name] = self._rng.random()
-
-        for product_name, prob in potential_products.items():
-            product = Product.get(product_name)
-            checkout_prob = prob[0]
-            if product_name in associated_potential_products:
-                for associated_product_name in product.associations.keys():
-                    if potential_products[associated_product_name][0] >= potential_products[associated_product_name][1] \
-                            and associated_potential_products[product_name] > checkout_prob:
-                        checkout_prob = associated_potential_products[product_name]
-                        break
-
-            self.products_days_left[product_name] = None
-            if prob[1] > checkout_prob:
-                continue
-
-            sku: SKU = self._rng.choice(product.skus)
-            quantity = min(1, self._rng.poisson(int(np.round(self.family.n_members / sku.pax))))
-            quantities.append((sku, quantity))
-
-        if len(quantities) == 0 \
-                or env.is_full_queue():
-            return
-
-        checkout = Checkout(
+    def get_checkout_products(
             self,
-            buyer,
-            quantities,
-            queue_datetime=env.current_step()
-        )
-        env.add_checkout_queue(checkout)
+            products: List[Product],
+            buyer: Person,
+            last_date: date
+        ) -> List[Product]:
+        checkout_products = [
+            product
+            for product, random in zip(
+                products,
+                self._rng.random(len(products))
+            )
+            if random <= product.adjusted_modifier(buyer, last_date)
+        ]
 
-        self.next_step = None
+        for product in checkout_products.copy():
+            checkout_product_names = [
+                product.name
+                for product in checkout_products
+            ]
+            for ( product_name, association_strength ), random in zip(
+                    product.associations.items(),
+                    self._rng.random(len(product.associations))
+                ):
+                if product_name not in checkout_product_names \
+                        and random <= association_strength:
+                    associated_product = Product.get(product_name)
+                    checkout_products.append(associated_product)
+
+        return checkout_products
+
+    def get_checkout_items(self, products: List[Product]) -> List[Tuple[SKU, int]]:
+        items = []
+        for product in products:
+            sku: SKU = self._rng.choice(product.skus)
+            quantity = 1 + int(self._rng.poisson(max(0.0, self.n_members / sku.pax - 1)))
+            items.append((sku, quantity))
+
+        return items
+
+    def calculate_collection_time(self, checkout: Checkout) -> float:
+        collection_time = (
+            15.0
+            + np.sum(
+                np.clip(
+                    self._rng.normal(15.0, 5.0, size=len(checkout.items)),
+                    1.0,
+                    3.0
+                )
+            )
+            + np.sum(
+                np.clip(
+                    self._rng.normal(2.5, size=sum([quantity - 1 for _, quantity in checkout.items])),
+                    0.0,
+                    5.0
+                )
+            )
+        )
+        return collection_time
+
+    def calculate_payment_time(self, checkout: Checkout) -> float:
+        payment_time = self.payment_method_time[checkout.payment_method]
+        return payment_time
+
+    @classmethod
+    def from_families(
+            cls,
+            families: Iterable[Family],
+            seed: int = None,
+            rng: np.random.RandomState = None
+        ) -> Iterable[Customer]:
+        if rng is None:
+            rng = np.random.RandomState(seed)
+
+        for family in families:
+            yield cls(
+                family,
+                seed=int(rng.random() * 1_000_000)
+            )

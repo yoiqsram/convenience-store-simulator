@@ -7,7 +7,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterable, List, Tuple, Union, TYPE_CHECKING
 
+from .base import ReprMixin
 from .constants import CONFIG_DIR, DAYS_IN_YEAR
+from .context import GlobalContext
 from .utils import add_years
 
 if TYPE_CHECKING:
@@ -24,19 +26,19 @@ class Gender(Enum):
 
 
 class AgeGroup(Enum):
-    KID = 0
+    KID = 12
     '''below 12 years'''
 
-    TEENAGE = 1
-    '''12-18 years'''
+    TEENAGE = 18
+    '''12-17 years'''
 
-    YOUNG_ADULT = 2
-    '''19-44 years'''
+    YOUNG_ADULT = 45
+    '''18-44 years'''
 
-    MIDDLE_ADULT = 3
+    MIDDLE_ADULT = 65
     '''45-64 years'''
 
-    OLDER_ADULT = 4
+    OLDER_ADULT = 100
     '''65 years and older'''
 
 
@@ -46,8 +48,8 @@ class FamilyStatus(Enum):
     CHILD = 2
 
 
-class Person:
-    __counter__ = 0
+class Person(ReprMixin):
+    __repr_attrs__ = ( 'id', 'name', 'gender', 'status' )
 
     def __init__(
             self,
@@ -57,32 +59,24 @@ class Person:
             birth_date: datetime,
             birth_place: Place = None
         ) -> None:
-        self.__class__.__counter__ += 1
-        self._id = self.__class__.__counter__
-
+        self.id = None
         self.name = name
         self.gender = gender
         self.status = status
         self.birth_date = birth_date
         self.birth_place = birth_place
+        self.birth_place.register_birth(self)
 
         self.min_purchasing_power = 0.0
         self.max_purchasing_power = 0.0
 
         self.family: Union[Family, None] = None
 
-    def __repr__(self) -> str:
-        return f"Person(name={repr(self.name)}, gender={self.gender.name}, status={self.status.name}, birth_date={self.birth_date.isoformat()})"
-
-    @property
-    def id(self) -> int:
-        return self._id
-
     def age(self, a_date: Union[datetime, date]) -> float:
         age = (a_date - self.birth_date).days / DAYS_IN_YEAR
         return age
 
-    def current_purchasing_power(self, a_date: Union[datetime, date]) -> float:
+    def purchasing_power(self, a_date: Union[datetime, date]) -> float:
         if self.max_purchasing_power == 0.0:
             return 0.0
 
@@ -120,11 +114,17 @@ class Person:
             age: float,
             status: FamilyStatus,
             a_date: date,
-            birth_place: Place = None,
-            seed: int = None
+            birth_place: Place,
+            anonymous: bool = True,
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> Person:
+        if rng is None:
+            rng = np.random.RandomState(seed)
+
+        name = Person.generate_name(gender, seed=int(rng.random() * 1_000_000)) if not anonymous else None
         return Person(
-            name=Person.generate_name(gender, seed=seed),
+            name=name,
             gender=gender,
             status=status,
             birth_date=add_years(a_date, -age),
@@ -132,14 +132,9 @@ class Person:
         )
 
 
-class Family:
+class Family(ReprMixin):
+    __repr_attrs__ = ( 'n_members', )
     __default_params__ = {
-        'member_shape': 1.5,
-        'member_scale': 1.0,
-        'purchasing_power_mean': 3400,
-        'purchasing_power_sigma': 0.5,
-        'spending_rate_min': 0.05,
-        'spending_rate_max': 0.25,
         'family_single_male_prob': 0.7,
         'family_married_prob': 0.75,
         'family_single_parent_and_male_prob': 0.4
@@ -149,8 +144,6 @@ class Family:
             members: Iterable[Person],
             spending_rate: float
         ) -> None:
-        super().__init__()
-
         if len(members) == 0:
             raise ValueError()
         self.members: List[Person] = list(members)
@@ -162,9 +155,6 @@ class Family:
         self._checkout: Checkout = None
         self._last_checkout_datetime: datetime = None
         self._next_checkout_datetime: datetime = None
-
-    def __repr__(self) -> str:
-        return f'Family(n_members={self.n_members})'
 
     @property
     def n_members(self) -> int:
@@ -192,7 +182,7 @@ class Family:
 
     def total_purchasing_power(self, a_date: Union[datetime, date]) -> float:
         return np.sum([
-            member.current_purchasing_power(a_date)
+            member.purchasing_power(a_date)
             for member in self.members
         ])
 
@@ -218,14 +208,21 @@ class Family:
             self,
             place: Place,
             a_date: date,
-            seed: int = None
+            gender: Gender = None,
+            anonymous: bool = True,
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> None:
-        rng = np.random.RandomState(seed)
+        if rng is None:
+            rng = np.random.RandomState(seed)
 
-        baby_gender = Gender.MALE if rng.random() < 0.5 else Gender.FEMALE
+        if gender is None:
+            gender = Gender.MALE if rng.random() < 0.5 else Gender.FEMALE
+
+        name = Person.generate_name(gender) if not anonymous else None
         baby = Person(
-            name=Person.generate_name(baby_gender),
-            gender=baby_gender,
+            name=name,
+            gender=gender,
             status=FamilyStatus.CHILD,
             birth_date=a_date,
             birth_place=place
@@ -250,54 +247,46 @@ class Family:
     @classmethod
     def random_max_n_members(
             cls,
-            shape: float = None,
-            scale: float = None,
-            seed: int = None
+            expected: float = None,
+            size: int = 1,
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> int:
-        if shape is None:
-            shape = cls.__default_params__['member_shape']
-        if scale is None:
-            scale = cls.__default_params__['member_scale']
+        if rng is None:
+            rng = np.random.RandomState(seed)
 
-        rng = np.random.RandomState(seed)
-        return int(np.round(rng.gamma(shape, scale))) + 1
+        shape = (expected if expected is not None else GlobalContext.POPULATION_FAMILY_SIZE) - 1
+        max_n_members = np.round(rng.gamma(shape, 1.0, size=size) + 1)
+        return max_n_members
 
     @classmethod
     def random_purchasing_power_range(
             cls,
-            mean: float = None,
-            sigma: float = None,
-            seed: int = None
+            expected: float = None,
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> Tuple[float, float]:
-        if mean is None:
-            mean = cls.__default_params__['purchasing_power_mean']
-        if sigma is None:
-            sigma = cls.__default_params__['purchasing_power_sigma']
+        if rng is None:
+            rng = np.random.RandomState(seed)
 
-        rng = np.random.RandomState(seed)
-        max_purchasing_power = rng.lognormal(mean, sigma)
-        return rng.uniform(0.25, 0.50) * max_purchasing_power, max_purchasing_power
+        mean = expected if expected is not None else GlobalContext.POPULATION_PURCHASING_POWER
+        max_purchasing_power = rng.lognormal(mean, 0.5)
+        min_purchasing_power = rng.uniform(0.25, 0.50) * max_purchasing_power
+        return min_purchasing_power, max_purchasing_power
 
     @classmethod
     def random_spending_rate(
             cls,
-            min: float = None,
-            max: float = None,
-            seed: int = None
+            expected: float = None,
+            size: int = None,
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> float:
-        if min is None:
-            min = cls.__default_params__['spending_rate_min']
-        if max is None:
-            max = cls.__default_params__['spending_rate_max']
+        if rng is None:
+            rng = np.random.RandomState(seed)
 
-        rng = np.random.RandomState(seed)
-        mean = (min + max) / 2
-        spread = max - min
-        spending_rate = np.clip(
-            spread * rng.normal(mean, 2 * spread),
-            min,
-            max
-        )
+        expected = expected if expected is not None else GlobalContext.POPULATION_SPENDING_RATE
+        spending_rate = np.clip(rng.normal(expected, expected * 0.25, size=size), 0.05, 0.80)
         return spending_rate
 
     @classmethod
@@ -329,34 +318,36 @@ class Family:
     def generate(
             cls,
             a_date: date,
-            member_shape: float = None,
-            member_scale: float = None,
-            purchasing_power_mean: float = None,
-            purchasing_power_sigma: float = None,
-            spending_rate_min: float = None,
-            spending_rate_max: float = None,
-            seed: int = None
+            place: Place,
+            n_members: int = None,
+            spending_rate: float = None,        
+            n_members_expected: float = None,
+            purchasing_power_expected: float = None,
+            spending_rate_expected: float = None,
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> Family:
-        rng = np.random.RandomState(seed)
-        n_members = cls.random_max_n_members(
-            member_shape,
-            member_scale,
-            seed=seed
-        )
+        if rng is None:
+            rng = np.random.RandomState(seed)
+
+        if n_members is None:
+            n_members = cls.random_max_n_members(n_members_expected, rng=rng)
 
         members: List[Person] = []
         # Single family
+        n_members = int(n_members)
         if n_members == 1:
             FAMILY_SINGLE_MALE_PROB = cls.__default_params__['family_single_male_prob']
             gender = Gender.MALE if rng.random() < FAMILY_SINGLE_MALE_PROB else Gender.FEMALE
-            age = 18.0 + rng.gamma(1.0, 2.5)
+            age = 18.0 + rng.gamma(1.0, 5.0)
 
             single = Person.generate(
                 gender=gender,
                 age=age,
                 status=FamilyStatus.SINGLE,
                 a_date=a_date,
-                seed=rng.get_state()[1][0]
+                birth_place=place,
+                rng=rng
             )
             members.append(single)
 
@@ -365,23 +356,25 @@ class Family:
             # Family with married couple
             FAMILY_MARRIED_PROB = cls.__default_params__['family_married_prob']
             if rng.random() < FAMILY_MARRIED_PROB:
-                father_age = 18.0 + n_members + rng.gamma(2.5, 5.0)
+                father_age = 18.0 + n_members + rng.gamma(3.0, 5.0)
                 father = Person.generate(
                     gender=Gender.MALE,
                     age=father_age,
                     status=FamilyStatus.PARENT,
                     a_date=a_date,
-                    seed=rng.get_state()[1][0]
+                    birth_place=place,
+                    rng=rng
                 )
                 members.append(father)
 
-                mother_age = max(16.0, rng.normal(father_age, 3.0))
+                mother_age = max(16.0 + n_members, rng.normal(father_age, 3.0))
                 mother = Person.generate(
                     gender=Gender.FEMALE,
                     age=mother_age,
                     status=FamilyStatus.PARENT,
                     a_date=a_date,
-                    seed=rng.get_state()[1][0]
+                    birth_place=place,
+                    rng=rng
                 )
                 members.append(mother)
 
@@ -391,13 +384,14 @@ class Family:
             else:
                 FAMILY_SINGLE_PARENT_AND_MALE_PROB = cls.__default_params__['family_single_parent_and_male_prob']
                 parent_gender = Gender.MALE if rng.random() < FAMILY_SINGLE_PARENT_AND_MALE_PROB else Gender.FEMALE
-                parent_age = 18.0 + n_members + rng.gamma(2.5, 5.0)
+                parent_age = 18.0 + n_members + rng.gamma(4.0, 5.0)
                 single_parent = Person.generate(
                     gender=parent_gender,
                     age=parent_age,
                     status=FamilyStatus.PARENT,
                     a_date=a_date,
-                    seed=rng.get_state()[1][0]
+                    birth_place=place,
+                    rng=rng
                 )
                 members.append(single_parent)
 
@@ -406,31 +400,55 @@ class Family:
             for _ in range(n_children):
                 child_gender = Gender.MALE if rng.random() < 0.5 else Gender.FEMALE
                 child_age = np.clip(
-                    parent_age - 18.0 - rng.gamma(1.0, 3.0),
+                    parent_age - 18.0 - rng.gamma(1.0, 5.0),
                     0.0,
-                    parent_age
+                    parent_age - 18.0
                 )
                 child = Person.generate(
                     gender=child_gender,
                     age=child_age,
                     status=FamilyStatus.CHILD,
                     a_date=a_date,
-                    seed=rng.get_state()[1][0]
+                    birth_place=place,
+                    rng=rng
                 )
                 members.append(child)
 
         # Set purchasing power for each member
         for member in members:
             member.min_purchasing_power, member.max_purchasing_power = \
-                cls.random_purchasing_power_range(
-                    purchasing_power_mean,
-                    purchasing_power_sigma,
-                    seed=seed
-                )
+                cls.random_purchasing_power_range(purchasing_power_expected, rng=rng)
 
-        spending_rate = cls.random_spending_rate(
-            spending_rate_min,
-            spending_rate_max,
-            seed=seed
-        )
+        if spending_rate_expected is None:
+            spending_rate = cls.random_spending_rate(spending_rate_expected, rng=rng)
+
         return cls(members, spending_rate)
+
+    @classmethod
+    def bulk_generate(
+            cls,
+            n: int,
+            a_date: date,
+            place: Place,
+            n_members_expected: float = None,
+            purchasing_power_expected: float = None,
+            spending_rate_expected: float = None,
+            seed: int = None,
+            rng: np.random.RandomState = None
+        ) -> Family:
+        if rng is None:
+            rng = np.random.RandomState(seed)
+
+        n_members = cls.random_max_n_members(n_members_expected, size=n, rng=rng)
+        spending_rates = cls.random_spending_rate(spending_rate_expected, size=n, rng=rng)
+        return [
+            Family.generate(
+                a_date,
+                place,
+                n_members[i],
+                spending_rates[i],
+                purchasing_power_expected=purchasing_power_expected,
+                rng=rng
+            )
+            for i in range(n)
+        ]

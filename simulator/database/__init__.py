@@ -2,7 +2,7 @@ from datetime import datetime
 from peewee import Database, IntegrityError
 
 from ..context import GlobalContext
-from .base import BaseModel
+from .base import BaseModel, ModelMixin
 from .employee import *
 from .item import *
 from .order import *

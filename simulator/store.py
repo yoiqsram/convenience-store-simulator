@@ -1,58 +1,74 @@
 from __future__ import annotations
 
 import asyncio
+import numpy as np
 from collections import deque
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Deque, Dict, Iterable, List, Tuple, TYPE_CHECKING
 
-from .base import DatetimeClock, Environment
+from .base import Community, Environment, DatetimeStepMixin
 from .checkout import Checkout, CheckoutStatus
+from .context import GlobalContext
 from .customer import Customer
-from .worker import Worker, WorkerStatus
+from .database import StoreModel, ModelMixin, SubdistrictModel
+from .worker import Worker, WorkerShift, WorkerStatus
 
 if TYPE_CHECKING:
     from .place import Place
 
 
-class Store(Environment):
+class Store(Community, DatetimeStepMixin, ModelMixin):
+    __repr_attrs__ = ( 'place', 'n_workers', 'last_step' )
+    __model__ = StoreModel
+
     def __init__(
             self,
             place: Place,
+            max_cashiers: int = None,
+            max_workers: int = None,
             max_queue: int = 15,
-            clock: DatetimeClock = None,
             seed: int = None
         ) -> None:
-        super().__init__(
-            clock=clock if clock is not None else DatetimeClock(),
-            seed=seed
-        )
+        super().__init__(seed=seed)
 
         self.place = place
-        self._potential_customers = []
-        for i, family in enumerate(self.place.families):
-            customer = Customer(family, seed=seed + i)
-            self.add_agent(customer)
-            self._potential_customers.append(customer)
+        self._potential_customers: List[Customer] = [
+            customer
+            for customer in Customer.from_families(self.place.families, rng=self._rng)
+        ]
+        self.add_agents(
+            self._potential_customers,
+            self._last_step,
+            None,
+            self._max_step
+        )
 
-        self.open_hour = 7
-        self.close_hour = 22
-
+        self.long_shift_hours = timedelta(hours=(GlobalContext.STORE_CLOSE_HOUR - GlobalContext.STORE_OPEN_HOUR) / 2)
+        self.schedule_shift_hours = {
+            WorkerShift.FIRST: GlobalContext.STORE_OPEN_HOUR,
+            WorkerShift.SECOND: (GlobalContext.STORE_OPEN_HOUR + GlobalContext.STORE_CLOSE_HOUR) / 2
+        }
+        self.max_cashiers = max_cashiers if max_cashiers is not None else GlobalContext.STORE_MAX_CASHIERS
+        self.max_workers = max_workers if max_workers is not None else GlobalContext.STORE_INITIAL_WORKERS
         self._workers: Dict[int, Worker] = dict()
-        for _ in range(2):
-            worker = Worker.generate(env=self)
-            self.add_worker(worker)
+        self._cashiers: List[Worker] = []
 
         self._checkout_queue: Deque[Checkout] = deque(maxlen=max_queue)
         self._checkout_queue_lock = asyncio.Lock()
 
-        self.total_checkouts = 0
+        place_record: SubdistrictModel = self.place.record
+        super().init_model(
+            unique_identifiers={ 'subdistrict': place_record.id },
+            subdistrict=place_record.id
+        )
+
+        self.total_checkout = 0
 
     @property
     def potential_customers(self) -> Iterable[Customer]:
         for customer in self._potential_customers:
             yield customer
 
-    @property
     def workers(self) -> Iterable[Worker]:
         return self._workers.values()
 
@@ -60,27 +76,23 @@ class Store(Environment):
     def n_workers(self) -> int:
         return len(self._workers)
 
-    def is_full_queue(self) -> bool:
-        return len(self._checkout_queue) == self._checkout_queue.maxlen
+    def add_worker(self, worker: Worker) -> None:
+        worker.created_datetime = self._last_step
+        self.add_agent(
+            worker,
+            self._last_step,
+            self._next_step,
+            self._max_step
+        )
 
-    def get_active_workers(self) -> List[Worker]:
-        return [
-            worker
-            for worker in self.workers
-            if worker.status in (
-                WorkerStatus.IDLE,
-                WorkerStatus.PROCESSING_CHECKOUT,
-                WorkerStatus.COMPLETING_SHIFT
-            )
-        ]
-
-    def add_worker(self, cashier: Worker) -> None:
-        self.add_agent(cashier)
-
-        if cashier.id in self._workers:
+        if worker.id in self._workers:
             raise IndexError()
 
-        self._workers[cashier.id] = cashier
+        self._workers[worker.id] = worker
+
+    def add_workers(self, workers: Iterable[Worker]) -> None:
+        for worker in workers:
+            self.add_worker(worker)
 
     def remove_worker(self, cashier) -> None:
         self.remove_agent(cashier)
@@ -90,124 +102,156 @@ class Store(Environment):
 
         del self._workers[cashier.id]
 
+    def get_active_workers(self) -> List[Worker]:
+        return [
+            worker
+            for worker in self.workers()
+            if worker.status not in (
+                WorkerStatus.OFF,
+                WorkerStatus.OUT_OF_OFFICE
+            )
+        ]
+
+    def is_open(self) -> bool:
+        for worker in self.workers():
+            if worker.status not in (
+                WorkerStatus.OFF,
+                WorkerStatus.OUT_OF_OFFICE
+            ):
+                return True
+        return False
+
+    def is_full_queue(self) -> bool:
+        return len(self._checkout_queue) == self._checkout_queue.maxlen
+
     async def add_checkout_queue_async(self, checkout: Checkout) -> None:
         async with self._checkout_queue_lock:
             self._checkout_queue.append(checkout)
 
     def add_checkout_queue(self, checkout: Checkout) -> None:
-        self._checkout_queue.append(checkout)
+        if checkout not in self._checkout_queue:
+            self._checkout_queue.append(checkout)
 
-    def get_changing_shift_workers(self) -> Tuple[Deque[Checkout], Deque[Checkout]]:
-        starting_shift_workers = deque(maxlen=self.n_workers)
-        completing_shift_workers = deque(maxlen=self.n_workers)
-        for worker in self._workers.values():
-            if worker.status == WorkerStatus.STARTING_SHIFT:
-                starting_shift_workers.append(worker)
-            elif worker.status == WorkerStatus.COMPLETING_SHIFT:
-                completing_shift_workers.append(worker)
+    async def remove_checkout_queue_async(self, checkout: Checkout) -> None:
+        async with self._checkout_queue_lock:
+            self._checkout_queue.remove(checkout)
 
-        return starting_shift_workers, completing_shift_workers
+    def remove_checkout_queue(self, checkout: Checkout) -> None:
+        try:
+            self._checkout_queue.remove(checkout)
+        except:
+            pass
 
-    def step(self) -> None:
-        super().step()
+    def step(self, env: Environment) -> Tuple[datetime, datetime]:
+        last_datetime, next_datetime = super().step(env)
+        last_date = last_datetime.date()
 
-        current_datetime = self.current_step()
-        current_date = current_datetime.date()
+        # Register to database for the first time
+        if self.record.id is None:
+            self.created_datetime = last_datetime
 
-        if self.place.last_update_date() < current_date:
-            self.place.update(current_date)
+        # Daily update
+        if self.place.last_updated_date < last_date:
+            print(self.place.name, '- Daily updates', last_date.isoformat())
+            # Update population from place
+            self.place.update(last_date)
 
-        # if current_datetime.second == 0 \
-        #     and current_datetime.minute % 15 == 0:
-        #     print(current_datetime.isoformat())
-
-        active_workers = self.get_active_workers()
-
-        # Open hour
-        if len(active_workers) == 0 \
-                and current_datetime.hour >= self.open_hour \
-                and current_datetime.hour < self.close_hour:
-            print(current_datetime.isoformat(), 'Store is opened.')
-            shift_hour = (self.open_hour + self.close_hour) / 2
-            shift_datetime = datetime(
-                current_datetime.year,
-                current_datetime.month,
-                current_datetime.day,
-                int(shift_hour),
-                int((shift_hour % 1) * 60)
-            )
-
-            workers = list(self.workers)
-            self._rng.shuffle(workers)
-            for shift, worker in enumerate(workers):
-                worker: Worker
-                worker._attendance_shift = shift + 1
-                worker._today_shift_datetime = shift_datetime
-
-                if worker._attendance_shift == 1:
-                    print('First shift:', worker.person.name)
-                    worker.status = WorkerStatus.IDLE
+            # Update potential customer needs
+            for customer in self._potential_customers:
+                customer.update(last_date)
 
             print('Current potential customers:', len([
                 customer
                 for customer in self.potential_customers
-                if customer.next_step.date() == self.current_step().date()
+                if customer.next_step() is not None
+                    and customer.next_step().date() == last_date
             ]))
+            print()
 
-        # Close hour
-        elif len(active_workers) > 0 \
-            and current_datetime.hour >= self.close_hour:
-            print(current_datetime.isoformat(), 'Store is closed')
-            for worker in self.workers:
-                worker: Worker
+            # Hire worker if has not enough worker
+            if self.n_workers < self.max_workers:
+                workers = Worker.bulk_generate(
+                    self.max_workers - self.n_workers,
+                    last_date,
+                    self.place
+                )
+                self.add_workers(workers)
+
+            # Schedule working shifts
+            self.schedule_shifts(last_date)
+
+            self.total_checkout = 0
+
+        # Transition working shift
+        active_workers = self.get_active_workers()
+        self.transition_working_shift(active_workers, last_datetime)
+
+        # Assign checkout queue to worker
+        if len(self._checkout_queue) > 0:
+            self.assign_checkout_queue(active_workers, last_datetime)
+
+        return last_datetime, next_datetime
+
+    def schedule_shifts(self, last_date: date) -> None:
+        shifts = ([1, 2] * int(np.ceil(self.n_workers / 2)))[:self.n_workers]
+        self._rng.shuffle(shifts)
+        for worker, shift in zip(self.workers(), shifts):
+            worker: Worker
+            worker.schedule_shift(last_date, WorkerShift(shift))
+            print(last_date, worker)
+        print()
+
+    def transition_working_shift(
+            self,
+            active_workers: List[Worker],
+            last_datetime: datetime
+        ) -> None:
+        next_shift_workers = [
+            worker
+            for worker in active_workers
+            if worker.status == WorkerStatus.STARTING_SHIFT
+        ]
+        for worker in active_workers:
+            # Assign to cashier who is going to start shift and there's still unused cashier
+            if worker.status == WorkerStatus.STARTING_SHIFT \
+                    and worker.today_shift_start_datetime <= last_datetime \
+                    and len(self._cashiers) < self.max_cashiers:
+                print(f'Worker {worker.id} begin working at', last_datetime)
+                self._cashiers.append(worker)
+                worker.status = WorkerStatus.IDLE
+
+            # Withdraw cashier who is ending shift that is not busy and there'll be enough cashiers
+            elif worker.schedule_shift_end_datetime <= last_datetime \
+                    and  worker.current_checkout is None \
+                    and (len(self._cashiers) + len(next_shift_workers) - 1) > 0:
+                print(f'Worker {worker.id} complete working at', last_datetime)
+                self._cashiers.remove(worker)
                 worker.status = WorkerStatus.OFF
-                worker._attendance_shift = 0
-                worker._today_shift_datetime = None
+                worker.shift = WorkerShift.OFF
+                worker.today_shift_end_datetime = last_datetime
 
-            print('Total checkouts:', self.total_checkouts)
-            self.total_checkouts = 0
+    def assign_checkout_queue(
+            self,
+            active_workers: List[Worker],
+            last_datetime: datetime
+        ) -> None:
+        for queue_item in self._checkout_queue.copy():
+            if queue_item.status != CheckoutStatus.QUEUING:
+                continue
 
-        # Skip step when store is close
-        if len(active_workers) == 0:
-            return
+            for worker in active_workers:
+                # Don't assign worker who is not a cashier
+                if worker not in self._cashiers:
+                    continue
 
-        # Working shift transition
-        starting_shift_workers, completing_shift_workers = self.get_changing_shift_workers()
-        if len(completing_shift_workers) > 0 \
-                and len(starting_shift_workers) > 0:
-            for i, worker in enumerate(completing_shift_workers):
-                if i >= len(starting_shift_workers):
-                    break
-                worker.status = WorkerStatus.OFF
-                starting_shift_workers[i].status = WorkerStatus.IDLE
+                # Don't assign worker who is still busy
+                if worker.current_checkout is not None:
+                    continue
 
-                print(current_datetime.isoformat(), 'Change working shift from ', worker, 'to', starting_shift_workers[i])
+                # Don't assign worker who is going to end shift and no other cashiers
+                if worker in self._cashiers \
+                        and worker.schedule_shift_end_datetime <= last_datetime \
+                        and len(self._cashiers) - 1 > 0:
+                    continue
 
-        # Process checkout
-        queue_items = [queue_item for queue_item in self._checkout_queue]
-        for queue_item in queue_items:
-            if queue_item.status == CheckoutStatus.QUEUEING:
-                for worker in self.get_active_workers():
-                    if worker.status != WorkerStatus.IDLE:
-                        continue
-
-                    # print(current_datetime.isoformat(), 'Processing ', queue_item, 'by', worker.person.name)
-                    queue_item.process(
-                        worker=worker,
-                        env=self
-                    )
-                    queue_item.worker.status = WorkerStatus.PROCESSING_CHECKOUT
-                    break
-
-            if queue_item.status == CheckoutStatus.PROCESSING \
-                    and queue_item.processed_datetime < self.current_step():
-                queue_item.pay()
-                # print(current_datetime.isoformat(), 'Paying', queue_item, 'using', queue_item.payment_method.name)
-
-            if queue_item.status == CheckoutStatus.WAITING_PAYMENT \
-                    and queue_item.paid_datetime < self.current_step():
-                # print(current_datetime.isoformat(), 'Complete', queue_item)
-                queue_item.worker.status = WorkerStatus.IDLE
-                queue_item.complete()
-                self._checkout_queue.popleft()
-                self.total_checkouts += 1
+                worker.current_checkout = queue_item

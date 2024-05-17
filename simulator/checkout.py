@@ -1,21 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import List, Tuple, Union, TYPE_CHECKING
+from typing import List, Tuple, TYPE_CHECKING
+
+from .base import ReprMixin
+from .database import ModelMixin
 
 if TYPE_CHECKING:
-    from .customer import Customer
     from .item import SKU
-    from .population import Person
-    from .store import Store, Worker
+    from .population import AgeGroup, Gender, Person
 
 
 class CheckoutStatus(Enum):
-    QUEUEING = 0
-    PROCESSING = 1
-    WAITING_PAYMENT = 2
-    DONE = 3
+    COLLECTING = 0
+    QUEUING = 1
+    PROCESSING = 2
+    WAITING_PAYMENT = 3
+    DOING_PAYMENT = 4
+    PAID = 5
+    DONE = 6
 
 
 class PaymentMethod(Enum):
@@ -25,55 +29,62 @@ class PaymentMethod(Enum):
     CREDIT_CARD = 3
 
 
-class Checkout:
+class Checkout(ModelMixin, ReprMixin):
+    __repr_attrs__ = ( 'items', 'payment_method' )
+
     def __init__(
             self,
-            customer: Customer,
+            items: List[Tuple[SKU, int]],
             buyer: Person,
-            quantities: List[Tuple[SKU, int]],
-            queue_datetime: datetime
+            payment_method: PaymentMethod,
+            begin_datetime: datetime
         ) -> None:
-        self.customer = customer
+        self.items = items
         self.buyer = buyer
-        self.quantities = quantities
-        self.payment_method = None
+        self.payment_method = payment_method
 
-        self.queue_datetime = queue_datetime
-        self.chekout_datetime: datetime = None
-        self.processed_datetime: datetime = None
-        self.paid_datetime: datetime = None
+        self._status = CheckoutStatus.COLLECTING
+        self.begin_datetime = begin_datetime
+        self.queue_datetime: datetime = None
+        self.counting_start_datetime: datetime = None
+        self.counting_end_datetime: datetime = None
+        self.complete_datetime: datetime = None
 
-        self.worker = None
-        self.env = None
-        self.status = CheckoutStatus.QUEUEING
+    @property
+    def status(self) -> CheckoutStatus:
+        return self._status
 
-    def __repr__(self) -> str:
-        return f"Checkout(customer_id={self.customer.id}, buyer='{self.buyer.name}', quantities={[sku.name for sku, _ in self.quantities]})"
+    def set_status(
+            self,
+            value: CheckoutStatus,
+            last_datetime: datetime
+        ) -> None:
+        if value == CheckoutStatus.QUEUING:
+            self.queue_datetime = last_datetime
 
-    def total_price(self):
+        elif value == CheckoutStatus.PROCESSING:
+            self.counting_start_datetime = last_datetime
+
+        elif value == CheckoutStatus.WAITING_PAYMENT:
+            self.counting_end_datetime = last_datetime
+
+        elif value == CheckoutStatus.PAID:
+            self.complete_datetime = last_datetime
+
+        self._status = value
+
+    def total_price(self) -> float:
         return sum([
             sku.price * quantity
-            for sku, quantity in self.quantities
+            for sku, quantity in self.items
         ])
 
-    def process(
+    def submit(
             self,
-            worker: Worker,
-            env: Store
+            store_id: int,
+            worker_id: int,
+            buyer_gender: Gender,
+            buyer_age_group: AgeGroup
         ) -> None:
-        self.worker = worker
-        self.env = env
-        self.checkout_datetime = self.env.current_step()
-        self.status = CheckoutStatus.PROCESSING
-
-        processing_time = worker.calculate_checkout(self)
-        self.processed_datetime = self.checkout_datetime + timedelta(seconds=processing_time)
-
-    def pay(self) -> None:
-        self.status = CheckoutStatus.WAITING_PAYMENT
-
-        self.payment_method, payment_time = self.customer.calculate_payment()
-        self.paid_datetime = self.processed_datetime + timedelta(seconds=payment_time)
-
-    def complete(self) -> Union[int, None]:
-        self.status = CheckoutStatus.DONE
+        return
+        # print(self.complete_datetime, '- Complete', [ ( sku.name, q )for sku, q in self.items ], 'from', f'({self.buyer.id}, {buyer_gender}, {buyer_age_group})', 'by', worker_id, 'in', store_id)

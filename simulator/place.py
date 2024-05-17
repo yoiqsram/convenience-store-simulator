@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import asyncio
 import numpy as np
-import yaml
-from datetime import date
-from pathlib import Path
-from typing import Dict, List, Generator, Iterable, Tuple, Union
+from datetime import date, timedelta
+from typing import Dict, List, Generator, Iterable, Tuple
 
-from .constants import CONFIG_DIR
+from .base import ReprMixin
+from .constants import DAYS_IN_YEAR
+from .context import GlobalContext
+from .database import ModelMixin, SubdistrictModel
 from .population import Family, FamilyStatus, Person, Gender
-
-DEFAULT_CONFIG_LOCATIONS = None
 
 
 def match_adults(adults: Iterable[Person]) -> Iterable[Tuple[Person, Person]]:
@@ -26,17 +24,9 @@ def match_adults(adults: Iterable[Person]) -> Iterable[Tuple[Person, Person]]:
     return zip(males[:total_matches], females[:total_matches])
 
 
-class Place:
-    __default_params__ = {
-        'initial_population_loc': 12_500,
-        'initial_population_scale': 5_000,
-        'fertility_rate_loc': 0.01,
-        'fertility_rate_scale': 0.01,
-        'life_expectancy_loc': 71.0,
-        'life_expectancy_scale': 5.0,
-        'marry_age_loc': 22.5,
-        'marry_age_scale': 2.5
-    }
+class Place(ModelMixin, ReprMixin):
+    __model__ = SubdistrictModel
+    __repr_attrs__ = ( 'id', 'name', 'current_population' )
 
     def __init__(
             self,
@@ -46,6 +36,7 @@ class Place:
             initial_population: int,
             fertility_rate: float,
             life_expectancy: float,
+            marry_age: float,
             seed: int = None
         ) -> None:
         self.id = id
@@ -53,21 +44,22 @@ class Place:
         self.initial_population = initial_population
         self.fertility_rate = fertility_rate
         self.life_expectancy = life_expectancy
+        self.marry_age = marry_age
 
         self._rng = np.random.RandomState(seed)
-        self._last_update_date: date = initial_date
+        self._prefix_id_counts: Dict[str, int] = dict()
+        self.last_updated_date: date = initial_date - timedelta(days=1)
 
-        self.families: List[Family] = self.generate_families(
+        self.families: List[Family] = Family.bulk_generate(
             int(self.initial_population / 3.0),
-            a_date=initial_date,
-            seed=self._rng.get_state()[1][0]
+            initial_date,
+            self,
+            rng=self._rng
         )
 
-    def __repr__(self) -> str:
-        return f"Place(name={repr(self.name)}, population={self.current_population()})"
-
-    def last_update_date(self) -> Union[date, None]:
-        return self._last_update_date
+        super().init_model(
+            unique_identifiers={ 'code': self.id }
+        )
 
     def current_population(self) -> int:
         return int(
@@ -77,178 +69,182 @@ class Place:
             ])
         )
 
-    def update(self, a_date: date) -> None:
-        for _ in range(max(0, (a_date - self._last_update_date).days)):
-            self._last_update_date = a_date
+    def update(self, last_date: date) -> None:
+        days_to_go = (last_date - self.last_updated_date).days
+        if days_to_go < 1:
+            return
+
+        for _ in range(days_to_go):
+            self.last_updated_date = last_date
+
+            n_families = len(self.families)
+
+            would_births = self._rng.random(n_families) < self.fertility_rate / DAYS_IN_YEAR
+            new_born_males = self._rng.random(n_families) > 0.5
+
+            life_expectancies = self._rng.normal(
+                self.life_expectancy,
+                self.life_expectancy * 0.1,
+                size=n_families
+            )
+            would_dies = self._rng.random(n_families) < self.fertility_rate * 0.1
+
+            marry_ages = self._rng.normal(
+                self.marry_age,
+                self.marry_age * 0.1,
+                size=n_families
+            )
+            would_marries = self._rng.random(n_families) < 0.005
 
             unmarried_adults: List[Person] = []
-            for family in self.families:
+            for family, would_birth, new_born_male, life_expectancy, would_die, marry_age, would_marry in zip(
+                    self.families,
+                    would_births,
+                    new_born_males,
+                    life_expectancies,
+                    would_dies,
+                    marry_ages,
+                    would_marries
+                ):
                 # Born new babies
                 if family.n_parents == 2 \
-                        and family.youngest_age(a_date) > 1:
-                    seed = self._rng.get_state()[1][0]
-                    max_members = Family.random_max_n_members(seed=seed)
+                        and family.youngest_age(last_date) > 1:
+                    max_members = Family.random_max_n_members(rng=self._rng)
                     if family.n_members < max_members \
-                            and self._rng.random() < self.fertility_rate * 0.25:
+                            and would_birth:
                         family.birth(
                             place=self,
-                            a_date=a_date,
-                            seed=seed
+                            a_date=last_date,
+                            gender=Gender.MALE if new_born_male else Gender.FEMALE,
+                            rng=self._rng
                         )
 
                 for person in family.members:
-                    age = person.age(a_date)
-
-                    # Remove died member
-                    die_age = self._rng.normal(
-                        self.life_expectancy,
-                        self.life_expectancy * 0.1
-                    )
-                    if age > die_age \
-                            and self._rng.random() < 0.1:
+                    age = person.age(last_date)
+                    if age > life_expectancy \
+                            and would_die:
                         family.die(person)
 
                     # Gather unmarried adults
-                    marry_age = self._rng.normal(
-                        self.__default_params__['marry_age_loc'],
-                        self.__default_params__['marry_age_scale']
-                    )
-                    if age > marry_age \
-                            and person.status in (FamilyStatus.SINGLE, FamilyStatus.CHILD):
+                    if person.status in (FamilyStatus.SINGLE, FamilyStatus.CHILD) \
+                            and age > marry_age \
+                            and would_marry:
                         unmarried_adults.append(person)
 
             # Marry the unmarried adults
             if len(unmarried_adults) > 0:
-                self._rng.shuffle(unmarried_adults)
-                matched_adults = match_adults((
-                    adult
-                    for adult in unmarried_adults
-                    if self._rng.random() < 0.005
-                ))
-                for male, female in matched_adults:
+                for male, female in match_adults(( adult for adult in unmarried_adults )):
                     new_family = Family.from_marriage(male, female)
                     self.families.append(new_family)
 
             # Filter non-empty family
-            self.families = list(filter(lambda family: family.n_members > 0, self.families))
+            self.families = [
+                family
+                for family in self.families
+                if family.n_members > 0
+            ]
 
-    @staticmethod
-    def generate_families(
-            n: int,
-            a_date: date,
-            seed: int = None,
-            **kwargs
-        ) -> None:
-        async def generate_family(new_seed: int = None):
-            return Family.generate(
-                a_date,
-                seed=new_seed,
-                **kwargs
-            )
-
-        async def generate_families():
-            return await asyncio.gather(*[
-                generate_family(
-                    seed + i if seed is not None else seed
-                )
-                for i in range(n)
-            ])
-
-        return asyncio.run(generate_families())
-
-    @classmethod
-    def _generate_params(
-            cls,
-            initial_population_loc: int = None,
-            initial_population_scale: int = None,
-            fertility_rate_loc: float = None,
-            fertility_rate_scale: float = None,
-            life_expectancy_loc: float = None,
-            life_expectancy_scale: float = None,
-            seed: int = None
-        ) -> Dict[str, Union[int, float]]:
-        rng = np.random.RandomState(seed)
-
-        if initial_population_loc is None:
-            initial_population_loc = cls.__default_params__['initial_population_loc']
-        if initial_population_scale is None:
-            initial_population_scale = cls.__default_params__['initial_population_scale']
-        initial_population = int(np.max([
-            0.0,
-            rng.normal(
-                initial_population_loc,
-                initial_population_scale
-            )
-        ]))
-
-        if fertility_rate_loc is None:
-            fertility_rate_loc = cls.__default_params__['fertility_rate_loc']
-        if fertility_rate_scale is None:
-            fertility_rate_scale = cls.__default_params__['fertility_rate_scale']
-        fertility_rate = rng.normal(
-            fertility_rate_loc,
-            fertility_rate_scale
+    def register_birth(self, person: Person) -> None:
+        prefix_id = (
+            self.id[:6]
+            + (str(person.birth_date.day) if person.gender == Gender.MALE else str(person.birth_date.day + 40))
+            + person.birth_date.strftime('%m%y')
         )
 
-        if life_expectancy_loc is None:
-            life_expectancy_loc = cls.__default_params__['life_expectancy_loc']
-        if life_expectancy_scale is None:
-            life_expectancy_scale = cls.__default_params__['life_expectancy_scale']
-        life_expectancy = rng.normal(
-            life_expectancy_loc,
-            life_expectancy_scale
-        )
+        if prefix_id not in self._prefix_id_counts:
+            self._prefix_id_counts[prefix_id] = 1
+        else:
+            self._prefix_id_counts[prefix_id] += 1
 
-        return {
-            'initial_population': initial_population,
-            'fertility_rate': fertility_rate,
-            'life_expectancy': life_expectancy
-        }
+        person.id = prefix_id + str(self._prefix_id_counts[prefix_id]).rjust(4, '0')
 
     @classmethod
     def generate(
             cls,
             n: int,
-            initial_date: date,
-            initial_population_loc: int = None,
-            initial_population_scale: int = None,
-            fertility_rate_loc: float = None,
-            fertility_rate_scale: float = None,
-            life_expectancy_loc: float = None,
-            life_expectancy_scale: float = None,
-            config_path: Path = None,
-            seed: int = None
+            initial_date: date = None,
+            initial_population: int = None,
+            fertility_rate: float = None,
+            life_expectancy: float = None,
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> Generator[Place]:
-        rng = np.random.RandomState(seed)
+        from .database import SubdistrictModel
 
-        config = None
-        if config_path is None:
-            config_path = CONFIG_DIR / 'locations.yaml'
-            config = DEFAULT_CONFIG_LOCATIONS
+        if rng is None:
+            rng = np.random.RandomState(seed)
 
-        if config is None:
-            with open(CONFIG_DIR / 'locations.yaml') as f:
-                locations = yaml.safe_load(f)
+        initial_date = initial_date if initial_date is not None else GlobalContext.INITIAL_DATE
 
-        districts = [
-            district
-            for country in locations['countries']
-            for province in country['provinces']
-            for city in province['cities']
-            for district in city['districts']
-        ]
-        for i, district in enumerate(rng.choice(districts, n, replace=False)):
+        initial_population = initial_population if initial_population is not None else GlobalContext.STORE_POPULATION
+        initial_populations = np.clip(
+            rng.normal(
+                initial_population,
+                initial_population * 0.25,
+                size=n
+            ),
+            50.0, np.Inf
+        )
+
+        fertility_rate = fertility_rate if fertility_rate is not None else GlobalContext.POPULATION_FERTILITY_RATE
+        fertility_rates = np.clip(
+            rng.normal(
+                fertility_rate,
+                fertility_rate * 0.1,
+                size=n
+            ),
+            0.0, np.Inf
+        )
+
+        life_expectancy = life_expectancy if life_expectancy is not None else GlobalContext.POPULATION_LIFE_EXPECTANCY
+        life_expectancies = np.clip(
+            rng.normal(
+                life_expectancy,
+                life_expectancy * 0.05,
+                size=n
+            ),
+            50.0, np.Inf
+        )
+
+        marry_age = life_expectancy if life_expectancy is not None else GlobalContext.POPULATION_LIFE_EXPECTANCY
+        marry_ages = np.clip(
+            rng.normal(
+                marry_age,
+                marry_age * 0.05,
+                size=n
+            ),
+            50.0, np.Inf
+        )
+
+        if seed is None:
+            seeds = [ int(num) for num in rng.random(n) * 1_000_000 ]
+        else:
+            seeds = [ None ] * n
+
+        total_subdistricts = SubdistrictModel.select().count()
+        subdistrict_ids = rng.choice(total_subdistricts, n, replace=False)
+        for subdistrict_id, initial_population_, fertility_rate_, life_expectancy_, marry_age_, seed in zip(
+                subdistrict_ids,
+                initial_populations,
+                fertility_rates,
+                life_expectancies,
+                marry_ages,
+                seeds
+            ):
+            subdistrict: SubdistrictModel = (
+                SubdistrictModel.select()
+                .limit(1)
+                .offset(int(subdistrict_id))
+                .execute()
+                .iterate()
+            )
             yield cls(
-                    id=district['id'],
-                    name=district['name'],
-                    initial_date=initial_date,
-                    **cls._generate_params(
-                        initial_population_loc=initial_population_loc,
-                        initial_population_scale=initial_population_scale,
-                        fertility_rate_loc=fertility_rate_loc,
-                        fertility_rate_scale=fertility_rate_scale,
-                        life_expectancy_loc=life_expectancy_loc,
-                        life_expectancy_scale=life_expectancy_scale,
-                        seed=seed + i if seed is not None else seed
-                    )
+                id=subdistrict.code,
+                name=subdistrict.name,
+                initial_date=initial_date,
+                initial_population=initial_population_,
+                fertility_rate=fertility_rate_,
+                life_expectancy=life_expectancy_,
+                marry_age=marry_age_,
+                seed=seed
             )

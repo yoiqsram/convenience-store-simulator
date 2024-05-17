@@ -96,7 +96,7 @@ categories:
   - name: BEVERAGES
     products:
     - name: SOFT DRINKS
-      modifier: 0.2
+      modifier: 0.1
       interval_days_need: 14
       skus:
         - name: Coca-Cola Original (250ml)
@@ -120,7 +120,7 @@ categories:
           cost: 0.81
           pax: 4
     - name: MILKS
-      modifier: 0.25
+      modifier: 0.2
       interval_days_need: 14
       skus:
         - name: Ultramilk Vanilla Milk UHT (250ml)
@@ -149,7 +149,7 @@ categories:
           cost: 1.19
           pax: 4
     - name: BOTTLED WATERS
-      modifier: 0.5
+      modifier: 0.35
       interval_days_need: 3
       skus:
         - name: Aqua Bottled Mineral Water (600ml)
@@ -168,7 +168,7 @@ categories:
           cost: 0.19
           pax: 1
     - name: COFFEE
-      modifier: 0.3
+      modifier: 0.2
       interval_days_need: 7
       skus:
         - name: ABC Milk Coffee (350ml)
@@ -202,7 +202,7 @@ categories:
           cost: 0.41
           pax: 1
     - name: YOGURTS & MILKSHAKES
-      modifier: 0.1
+      modifier: 0.05
       interval_days_need: 30
       skus:
         - name: Cimory Yoghurt Strawberry (350ml)
@@ -484,7 +484,7 @@ categories:
           brand: Sari Roti
           price: 0.84
           cost: 0.75
-          pax: 2
+          pax: 4
         - name: Sari Roti Chocolate Sandwich
           brand: Sari Roti
           price: 0.31

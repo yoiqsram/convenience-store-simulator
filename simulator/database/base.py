@@ -59,7 +59,7 @@ class ModelMixin:
             self._record = self.__class__.__model__(**kwargs)
 
     @property
-    def record(self) -> int:
+    def record(self) -> BaseModel:
         return self._record
 
     @property
@@ -69,6 +69,8 @@ class ModelMixin:
     @created_datetime.setter
     def created_datetime(self, value: datetime) -> None:
         self._record.created_datetime = value
+        if hasattr(self._record, 'modified_datetime'):
+            setattr(self._record, 'modified_datetime', value)
 
         if self._record.id is None:
             self._record.save(force_insert=True)

@@ -89,7 +89,7 @@ class StoreModel(BaseModel):
     id = AutoField(primary_key=True)
     subdistrict = ForeignKeyField(
         SubdistrictModel,
-        backref='stores',
+        backref='store',
         on_delete='CASCADE',
         unique=True
     )

@@ -9,11 +9,6 @@ from typing import Any, Dict, Type, Union
 
 from ..context import GlobalContext
 
-# import logging
-# peewee_logger = logging.getLogger('peewee')
-# peewee_logger.addHandler(logging.StreamHandler())
-# peewee_logger.setLevel(logging.DEBUG)
-
 
 class BaseModel(Model):
     created_datetime = DateTimeField()
@@ -35,7 +30,7 @@ class BaseModel(Model):
 class ModelMixin:
     __model__: Type[BaseModel]
 
-    def init_model(
+    def __init_model__(
             self,
             unique_identifiers: Dict[str, Any],
             **kwargs
@@ -51,12 +46,17 @@ class ModelMixin:
             self._record = query.get()
 
             for name, value in kwargs.items():
-                if hasattr(self._record, name) \
-                        and getattr(self._record, name) != value:
-                    setattr(self._record, name, value)
+                setattr(self._record, name, value)
 
-        except DoesNotExist:
-            self._record = self.__class__.__model__(**kwargs)
+        except:
+            self._record = self.__class__.__model__(
+                **self._unique_identifiers,
+                **kwargs
+            )
+
+    @property
+    def record_id(self) -> int:
+        return self._record.id
 
     @property
     def record(self) -> BaseModel:

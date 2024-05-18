@@ -4,14 +4,15 @@ import numpy as np
 from datetime import date, datetime, timedelta
 from typing import Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
 
-from .base import Agent
-from .checkout import Checkout, CheckoutStatus, PaymentMethod
-from .context import GlobalContext
-from .item import Product, SKU
-from .population import Family, FamilyStatus, Person
+from ..context import GlobalContext
+from ..core import Agent, DatetimeStepMixin
+from ..enums import FamilyStatus, OrderStatus, PaymentMethod
+from ..population import Family, Person
+from .order import Order
+from .sku import Product, SKU
 
 if TYPE_CHECKING:
-    from .simulation import Simulator
+    from ..simulation import Simulator
     from .store import Store
 
 
@@ -38,17 +39,23 @@ def random_payment_method_config(
     return payment_method_prob, payment_method_time
 
 
-class Customer(Agent):
-    __repr_attrs__ = ( 'id', 'last_step', 'current_checkout' )
+class Customer(Agent, DatetimeStepMixin):
+    __repr_attrs__ = ( 'id', 'n_members', 'current_datetime', 'current_order' )
 
     def __init__(
             self,
             family: Family,
+            initial_datetime: datetime,
+            interval: float,
             seed: int = None
         ) -> None:
-        super().__init__(seed=seed)
+        super().__init__(
+            initial_datetime,
+            interval,
+            seed=seed
+        )
 
-        self.community: Store
+        self.parent: Store
         self.family = family
 
         self.product_need_days_left: Dict[str, int] = {
@@ -57,9 +64,9 @@ class Customer(Agent):
         }
         self.payment_method_prob, self.payment_method_time = random_payment_method_config(self._rng)
 
-        self.current_checkout: Union[Checkout, None] = None
+        self.current_order: Union[Order, None] = None
 
-        self._last_updated_date: date = None
+        self._last_updated_date: date = initial_datetime.date()
 
     @property
     def n_members(self) -> int:
@@ -80,13 +87,13 @@ class Customer(Agent):
             self._next_step = self.calculate_next_order_datetime(last_date)
 
     def step(self, env: Simulator) -> Tuple[datetime, Union[datetime, None]]:
-        last_datetime, next_datetime = super().step(env)
+        current_datetime, next_datetime = super().step(env)
         if next_datetime is None:
-            return last_datetime, next_datetime
+            return current_datetime, next_datetime
 
-        last_date = last_datetime.date()
+        last_date = current_datetime.date()
 
-        if self.current_checkout is None:
+        if self.current_order is None:
             # Randomize buyer representative and get the family needs
             buyer = self.random_buyer(last_date)
             payment_method = self.random_payment_method()
@@ -96,71 +103,64 @@ class Customer(Agent):
                     product.interval_days_need
                 )
 
-            # Calculate conversion from needs to purchase from the store, then checkout
-            checkout_products = self.get_checkout_products(needed_products, buyer, last_date)
+            # Calculate conversion from needs to purchase from the store, then order
+            order_products = self.get_order_products(needed_products, buyer, last_date)
 
-            # Skip checkout if have no product to purchase, wouldn't spend, store is close or store is open but full
-            if len(checkout_products) == 0 \
+            # Skip order if have no product to purchase, wouldn't spend, store is close or store is open but full
+            if len(order_products) == 0 \
                     or self._rng.random() > self.family.spending_rate \
-                    or not self.community.is_open() \
-                    or self.community.is_full_queue():
+                    or not self.parent.is_open() \
+                    or self.parent.is_full_queue():
                 self._next_step = self.calculate_next_order_datetime(last_date)
-                return last_datetime, self._next_step
+                return current_datetime, self._next_step
 
-            # Collecting checkout products in the store
-            checkout_items = self.get_checkout_items(checkout_products)
-            self.current_checkout = Checkout(
-                checkout_items,
-                buyer,
-                payment_method,
-                last_datetime
-            )
-            collection_time = self.calculate_collection_time(self.current_checkout)
-            self._next_step = last_datetime + timedelta(seconds=collection_time)
-            return last_datetime, self._next_step
+            # Collecting order products in the store
+            order_skus = self.get_order_skus(order_products)
+            self.current_order = Order(buyer, order_skus, current_datetime)
 
-        # Queuing checkout
-        elif self.current_checkout.status == CheckoutStatus.COLLECTING:
-            self.community.add_checkout_queue(self.current_checkout)
-            self.current_checkout.set_status(
-                CheckoutStatus.QUEUING,
-                last_datetime
-            )
+            collection_time = self.calculate_collection_time(self.current_order)
+            self._next_step = current_datetime + timedelta(seconds=collection_time)
+            return current_datetime, self._next_step
 
-        # Paying checkout
-        elif self.current_checkout.status == CheckoutStatus.WAITING_PAYMENT:
-            self.current_checkout.set_status(
-                CheckoutStatus.DOING_PAYMENT,
-                last_datetime
-            )
-            payment_time = self.calculate_payment_time(self.current_checkout)
-            self._next_step = last_datetime + timedelta(seconds=payment_time)
-            return last_datetime, self._next_step
+        # Queuing order
+        elif self.current_order.status == OrderStatus.COLLECTING:
+            self.current_order.queue(self.parent, current_datetime)
+
+        # Paying order
+        elif self.current_order.status == OrderStatus.WAITING_PAYMENT:
+            payment_method = self.random_payment_method()
+            self.current_order.begin_payment(payment_method)
+
+            payment_time = self.calculate_payment_time(self.current_order)
+            self._next_step = current_datetime + timedelta(seconds=payment_time)
+            return current_datetime, self._next_step
 
         # Complete the payment
-        elif self.current_checkout.status == CheckoutStatus.DOING_PAYMENT:
-            self.current_checkout.set_status(
-                CheckoutStatus.PAID,
-                last_datetime
-            )
+        elif self.current_order.status == OrderStatus.DOING_PAYMENT:
+            self.current_order.complete_payment(current_datetime)
 
         # Leave the store
-        elif self.current_checkout.status == CheckoutStatus.DONE:
-            self.current_checkout = None
+        elif self.current_order.status == OrderStatus.DONE:
+            self.current_order = None
             self._next_step = self.calculate_next_order_datetime(last_date)
-            return last_datetime, self._next_step
+            return current_datetime, self._next_step
 
-        return last_datetime, next_datetime
+        return current_datetime, next_datetime
 
     def calculate_next_order_datetime(self, last_date: date) -> datetime:
         n = 1 + int(self._rng.poisson(7))
         most_needed_products = sorted(self.product_need_days_left.values())[:n]
         max_need_days_left = int(max(most_needed_products))
 
+        hour_loc = self._rng.choice(GlobalContext.STORE_PEAK_HOURS)
+        hour_spread = min(
+            hour_loc - GlobalContext.STORE_OPEN_HOUR,
+            GlobalContext.STORE_CLOSE_HOUR - hour_loc
+        )
         order_datetime = (
             datetime(last_date.year, last_date.month, last_date.day)
             + timedelta(days=max_need_days_left)
-            + timedelta(hours=self._rng.normal(self._rng.choice(GlobalContext.STORE_PEAK_HOURS), 1.0))
+            + timedelta(hours=self._rng.normal(hour_loc, hour_spread / 2.0))
         )
         return order_datetime
 
@@ -200,13 +200,13 @@ class Customer(Agent):
             if days_left <= days_to_go
         ]
 
-    def get_checkout_products(
+    def get_order_products(
             self,
             products: List[Product],
             buyer: Person,
             last_date: date
         ) -> List[Product]:
-        checkout_products = [
+        order_products = [
             product
             for product, random in zip(
                 products,
@@ -215,23 +215,23 @@ class Customer(Agent):
             if random <= product.adjusted_modifier(buyer, last_date)
         ]
 
-        for product in checkout_products.copy():
-            checkout_product_names = [
+        for product in order_products.copy():
+            order_product_names = [
                 product.name
-                for product in checkout_products
+                for product in order_products
             ]
             for ( product_name, association_strength ), random in zip(
                     product.associations.items(),
                     self._rng.random(len(product.associations))
                 ):
-                if product_name not in checkout_product_names \
+                if product_name not in order_product_names \
                         and random <= association_strength:
                     associated_product = Product.get(product_name)
-                    checkout_products.append(associated_product)
+                    order_products.append(associated_product)
 
-        return checkout_products
+        return order_products
 
-    def get_checkout_items(self, products: List[Product]) -> List[Tuple[SKU, int]]:
+    def get_order_skus(self, products: List[Product]) -> List[Tuple[SKU, int]]:
         items = []
         for product in products:
             sku: SKU = self._rng.choice(product.skus)
@@ -240,19 +240,19 @@ class Customer(Agent):
 
         return items
 
-    def calculate_collection_time(self, checkout: Checkout) -> float:
+    def calculate_collection_time(self, order: Order) -> float:
         collection_time = (
             15.0
             + np.sum(
                 np.clip(
-                    self._rng.normal(15.0, 5.0, size=len(checkout.items)),
+                    self._rng.normal(15.0, 5.0, size=order.n_order_skus),
                     1.0,
                     3.0
                 )
             )
             + np.sum(
                 np.clip(
-                    self._rng.normal(2.5, size=sum([quantity - 1 for _, quantity in checkout.items])),
+                    self._rng.normal(2.5, size=sum([quantity - 1 for _, quantity in order.order_skus()])),
                     0.0,
                     5.0
                 )
@@ -260,8 +260,8 @@ class Customer(Agent):
         )
         return collection_time
 
-    def calculate_payment_time(self, checkout: Checkout) -> float:
-        payment_time = self.payment_method_time[checkout.payment_method]
+    def calculate_payment_time(self, order: Order) -> float:
+        payment_time = self.payment_method_time[order.payment_method]
         return payment_time
 
     @classmethod

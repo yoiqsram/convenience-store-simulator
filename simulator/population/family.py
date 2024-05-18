@@ -1,138 +1,19 @@
 from __future__ import annotations
 
 import numpy as np
-import yaml
 from datetime import date, datetime
-from enum import Enum
-from pathlib import Path
 from typing import Iterable, List, Tuple, Union, TYPE_CHECKING
 
-from .base import ReprMixin
-from .constants import CONFIG_DIR, DAYS_IN_YEAR
-from .context import GlobalContext
-from .utils import add_years
+from ..core import IdentityMixin, ReprMixin
+from ..context import GlobalContext
+from ..enums import FamilyStatus, Gender
+from .person import Person
 
 if TYPE_CHECKING:
-    from .checkout import Checkout
     from .place import Place
 
-DEFAULT_CONFIG_NAMES = None
-DEFAULT_CONFIG_LOCATIONS = None
 
-
-class Gender(Enum):
-    MALE = 0
-    FEMALE = 1
-
-
-class AgeGroup(Enum):
-    KID = 12
-    '''below 12 years'''
-
-    TEENAGE = 18
-    '''12-17 years'''
-
-    YOUNG_ADULT = 45
-    '''18-44 years'''
-
-    MIDDLE_ADULT = 65
-    '''45-64 years'''
-
-    OLDER_ADULT = 100
-    '''65 years and older'''
-
-
-class FamilyStatus(Enum):
-    SINGLE = 0
-    PARENT = 1
-    CHILD = 2
-
-
-class Person(ReprMixin):
-    __repr_attrs__ = ( 'id', 'name', 'gender', 'status' )
-
-    def __init__(
-            self,
-            name: str,
-            gender: Gender,
-            status: FamilyStatus,
-            birth_date: datetime,
-            birth_place: Place = None
-        ) -> None:
-        self.id = None
-        self.name = name
-        self.gender = gender
-        self.status = status
-        self.birth_date = birth_date
-        self.birth_place = birth_place
-        self.birth_place.register_birth(self)
-
-        self.min_purchasing_power = 0.0
-        self.max_purchasing_power = 0.0
-
-        self.family: Union[Family, None] = None
-
-    def age(self, a_date: Union[datetime, date]) -> float:
-        age = (a_date - self.birth_date).days / DAYS_IN_YEAR
-        return age
-
-    def purchasing_power(self, a_date: Union[datetime, date]) -> float:
-        if self.max_purchasing_power == 0.0:
-            return 0.0
-
-        career_progress = (
-            self.min_purchasing_power
-            / self.max_purchasing_power
-            / (1.0 + 10.0 * np.exp(-0.25 * (self.age(a_date) - 18.0) / 20.0))
-        )
-        return career_progress * self.max_purchasing_power
-
-    @staticmethod
-    def generate_name(
-            gender: Gender,
-            config_path: Path = None,
-            seed: int = None
-        ) -> str:
-        rng = np.random.RandomState(seed)
-
-        config = None
-        if config_path is None:
-            config_path = CONFIG_DIR / 'names.yaml'
-            config = DEFAULT_CONFIG_NAMES
-
-        if config is None:
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
-
-        first_name_choices = config[gender.name]['first']
-        return rng.choice(first_name_choices)
-
-    @classmethod
-    def generate(
-            self,
-            gender: Gender,
-            age: float,
-            status: FamilyStatus,
-            a_date: date,
-            birth_place: Place,
-            anonymous: bool = True,
-            seed: int = None,
-            rng: np.random.RandomState = None
-        ) -> Person:
-        if rng is None:
-            rng = np.random.RandomState(seed)
-
-        name = Person.generate_name(gender, seed=int(rng.random() * 1_000_000)) if not anonymous else None
-        return Person(
-            name=name,
-            gender=gender,
-            status=status,
-            birth_date=add_years(a_date, -age),
-            birth_place=birth_place
-        )
-
-
-class Family(ReprMixin):
+class Family(IdentityMixin, ReprMixin):
     __repr_attrs__ = ( 'n_members', )
     __default_params__ = {
         'family_single_male_prob': 0.7,
@@ -152,9 +33,7 @@ class Family(ReprMixin):
 
         self.spending_rate = spending_rate
 
-        self._checkout: Checkout = None
-        self._last_checkout_datetime: datetime = None
-        self._next_checkout_datetime: datetime = None
+        super().__init_id__()
 
     @property
     def n_members(self) -> int:

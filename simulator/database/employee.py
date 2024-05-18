@@ -1,6 +1,10 @@
 from .base import *
 
-__all__ = [ 'EmployeeModel' ]
+__all__ = [
+    'EmployeeModel',
+    'EmployeeShiftScheduleModel',
+    'EmployeeAttendanceModel'
+]
 
 
 class EmployeeModel(BaseModel):
@@ -12,3 +16,25 @@ class EmployeeModel(BaseModel):
     birth_place = CharField()
 
     modified_datetime = DateTimeField()
+
+    class Meta:
+        table_name = 'employees'
+
+
+class EmployeeShiftScheduleModel(BaseModel):
+    id = AutoField(primary_key=True)
+    employee = ForeignKeyField(EmployeeModel)
+    shift_start_datetime = DateTimeField()
+    shift_end_datetime = DateTimeField()
+
+    class Meta:
+        table_name = 'employee_shift_schedules'
+
+
+class EmployeeAttendanceModel(BaseModel):
+    id = AutoField(primary_key=True)
+    employee = ForeignKeyField(EmployeeModel)
+    status = CharField()
+
+    class Meta:
+        table_name = 'employee_attendances'

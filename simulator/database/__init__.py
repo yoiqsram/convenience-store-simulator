@@ -2,17 +2,23 @@ from datetime import datetime
 from peewee import Database, IntegrityError
 
 from ..context import GlobalContext
+from ..enums import PaymentMethod
 from .base import BaseModel, ModelMixin
 from .employee import *
-from .item import *
+from .sku import *
 from .order import *
 from .store import *
 
 
-def create_database():
+def create_database(created_datetime: datetime = None) -> Database:
+    if created_datetime is None:
+        created_datetime = datetime.now()
+
     database: Database = BaseModel._meta.database
     database.create_tables([
         EmployeeModel,
+        EmployeeShiftScheduleModel,
+        EmployeeAttendanceModel,
         PaymentMethodModel,
         OrderModel,
         OrderSKUModel,
@@ -27,16 +33,23 @@ def create_database():
         StoreModel
     ])
 
-    created_datetime = datetime(
-        GlobalContext.INITIAL_DATE.year,
-        GlobalContext.INITIAL_DATE.month,
-        GlobalContext.INITIAL_DATE.day
-    )
-    populate_items(created_datetime)
-    populate_locations(created_datetime)
+    _populate_payment_method(created_datetime)
+    _populate_items(created_datetime)
+    _populate_locations(created_datetime)
+
+    return database
 
 
-def populate_items(created_datetime: datetime):
+def _populate_payment_method(created_datetime: datetime) -> None:
+    for payment_method in PaymentMethod:
+        PaymentMethodModel.create(
+            id=payment_method.value,
+            name=payment_method.name,
+            created_datetime=created_datetime
+        )
+
+
+def _populate_items(created_datetime: datetime) -> None:
     item_config = GlobalContext.get_config_item()
     for category in item_config['categories']:
         try:
@@ -80,7 +93,7 @@ def populate_items(created_datetime: datetime):
                     continue
 
 
-def populate_locations(created_datetime: datetime):
+def _populate_locations(created_datetime: datetime) -> None:
     location_config = GlobalContext.get_config_location()
     for country in location_config['countries']:
         try:

@@ -6,6 +6,8 @@ from typing import Any, List, Union
 
 _STR_NONE = Union[str, None]
 
+DAYS_IN_YEAR = 365.2425
+
 
 def get_dict_value(
         d: dict,
@@ -25,6 +27,8 @@ def get_dict_value(
         pass
     elif isinstance(env_var, type):
         return env_var
+    elif isinstance(type, bool):
+        cast = lambda val: val.lower() == 'true'
     elif isinstance(type, date):
         cast = date.fromisoformat
     elif isinstance(type, datetime):
@@ -87,7 +91,7 @@ class GlobalContext:
     STORE_GROWTH_RATE: int = get_environment_variable('SIMULATOR_STORE_GROWTH_RATE', float, 0.5)
 
     STORE_MAX_CASHIERS: int = get_environment_variable('SIMULATOR_STORE_MAX_CASHIERS', int, 2)
-    STORE_INITIAL_WORKERS: int = get_environment_variable('SIMULATOR_STORE_INITIAL_WORKERS', int, 2)
+    STORE_INITIAL_EMPLOYEES: int = get_environment_variable('SIMULATOR_STORE_INITIAL_EMPLOYEES', int, 2)
     STORE_OPEN_HOUR: float = get_environment_variable('SIMULATOR_STORE_OPEN_HOUR', float, 7.0)
     STORE_CLOSE_HOUR: float = get_environment_variable('SIMULATOR_STORE_OPEN_HOUR', float, 22.0)
     STORE_PEAK_HOURS: List[float] = [ 12.5, 19.0 ]
@@ -97,6 +101,10 @@ class GlobalContext:
 
     CONFIG_LOCATION_PATH: Path = get_environment_variable('SIMULATOR_CONFIG_LOCATION_PATH', Path, CONFIG_DIR / 'locations.yaml')
     CONFIG_LOCATION = None
+
+    DEBUG_DATABASE: bool = get_environment_variable('DEBUG_DATABASE', bool, False)
+    DEBUG_SIMULATOR: bool = get_environment_variable('DEBUG_SIMULATOR', bool, False)
+    DEBUG_STORE: bool = get_environment_variable('DEBUG_STORE', bool, False)
 
     @classmethod
     def get(

@@ -1,28 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, TYPE_CHECKING
 
-from .base import ReprMixin
-from .context import GlobalContext
+from ..core import ReprMixin
+from ..context import GlobalContext
+from ..database import ModelMixin, SKUModel, ProductModel
 
 if TYPE_CHECKING:
-    from .population import Person
+    from ..population.family import Person
 
 
-@dataclass
-class SKU:
-    name: str
-    brand: str
-    product: str
-    price: float
-    cost: float
-    pax: float
-
-
-class Product(ReprMixin):
+class Product(ModelMixin, ReprMixin):
+    __model__ = ProductModel
     __repr_attrs__ = ( 'name', 'category', 'modifier' )
     __products__: Dict[str, Product] = dict()
 
@@ -49,6 +40,8 @@ class Product(ReprMixin):
             demographic_modifiers = []
         self.demographic_modifiers = demographic_modifiers
 
+        super().__init_model__({ 'name': self.name })
+
         if skus is None:
             skus = []
         self.skus = skus
@@ -58,8 +51,10 @@ class Product(ReprMixin):
             person: Person,
             last_date: date
         ) -> float:
-        age = person.age(last_date)
         multiplier = 1.0
+
+        # Adjust modifier based on demographic
+        age = person.age(last_date)
         for modifier in self.demographic_modifiers:
             if modifier['gender'] is not None \
                     and person.gender != modifier['gender']:
@@ -74,6 +69,15 @@ class Product(ReprMixin):
                 continue
 
             multiplier += modifier['value']
+
+        # Adjust modifier based on weekday
+        weekday = last_date.weekday()
+        if weekday == 0:
+            multiplier += 0.1
+        elif weekday == 5:
+            multiplier += 0.25
+        elif weekday == 6:
+            multiplier += 0.5
 
         return self.modifier * multiplier
 
@@ -97,11 +101,17 @@ class Product(ReprMixin):
         item_config = GlobalContext.get_config_item(config_path)
         for category in item_config['categories']:
             for product_name in category['products']:
-                skus = [
+                product = cls(
+                    name=product_name['name'],
+                    category=category['name'],
+                    modifier=product_name.get('modifier', 0.01),
+                    interval_days_need=product_name.get('interval_days_need', 30),
+                )
+                product.skus = [
                     SKU(
                         name=sku['name'],
                         brand=sku['brand'],
-                        product=product_name['name'],
+                        product=product,
                         price=sku['price'],
                         cost=sku['cost'],
                         pax=sku['pax']
@@ -109,13 +119,7 @@ class Product(ReprMixin):
                     for sku in product_name['skus']
                 ]
 
-                cls.__products__[product_name['name']] = cls(
-                    name=product_name['name'],
-                    category=category['name'],
-                    modifier=product_name.get('modifier', 0.01),
-                    interval_days_need=product_name.get('interval_days_need', 30),
-                    skus=skus
-                )
+                cls.__products__[product_name['name']] = product
 
         for association in item_config['associations']:
             association_products = [
@@ -147,3 +151,34 @@ class Product(ReprMixin):
                     'value': value
                 })
 
+
+class SKU(ModelMixin):
+    __model__ = SKUModel
+
+    def __init__(
+            self,
+            name: str,
+            brand: str,
+            product: Product,
+            price: float,
+            cost: float,
+            pax: int
+        ) -> None:
+        self.name = name
+        self.brand = brand
+        self.product = product
+        self.price = price
+        self.cost = cost
+        self.pax = pax
+
+        super().__init_model__(
+            unique_identifiers={ 'name': name },
+            brand=brand,
+            product=product.record.id,
+            price=price,
+            cost=cost,
+            pax=pax
+        )
+
+    def update(self, current_datetime: datetime) -> None:
+        self.created_datetime = current_datetime

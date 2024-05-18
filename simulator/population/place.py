@@ -4,11 +4,10 @@ import numpy as np
 from datetime import date, timedelta
 from typing import Dict, List, Generator, Iterable, Tuple
 
-from .base import ReprMixin
-from .constants import DAYS_IN_YEAR
-from .context import GlobalContext
-from .database import ModelMixin, SubdistrictModel
-from .population import Family, FamilyStatus, Person, Gender
+from ..core import ReprMixin
+from ..context import GlobalContext, DAYS_IN_YEAR
+from ..database import ModelMixin, SubdistrictModel
+from .family import Family, FamilyStatus, Person, Gender
 
 
 def match_adults(adults: Iterable[Person]) -> Iterable[Tuple[Person, Person]]:
@@ -26,7 +25,7 @@ def match_adults(adults: Iterable[Person]) -> Iterable[Tuple[Person, Person]]:
 
 class Place(ModelMixin, ReprMixin):
     __model__ = SubdistrictModel
-    __repr_attrs__ = ( 'id', 'name', 'current_population' )
+    __repr_attrs__ = ( 'id', 'name', 'n_families', 'total_population' )
 
     def __init__(
             self,
@@ -48,7 +47,7 @@ class Place(ModelMixin, ReprMixin):
 
         self._rng = np.random.RandomState(seed)
         self._prefix_id_counts: Dict[str, int] = dict()
-        self.last_updated_date: date = initial_date - timedelta(days=1)
+        self.last_updated_date: date = initial_date
 
         self.families: List[Family] = Family.bulk_generate(
             int(self.initial_population / 3.0),
@@ -57,11 +56,15 @@ class Place(ModelMixin, ReprMixin):
             rng=self._rng
         )
 
-        super().init_model(
+        super().__init_model__(
             unique_identifiers={ 'code': self.id }
         )
 
-    def current_population(self) -> int:
+    @property
+    def n_families(self) -> int:
+        return len(self.families)
+
+    def total_population(self) -> int:
         return int(
             np.sum([
                 family.n_members
@@ -69,7 +72,7 @@ class Place(ModelMixin, ReprMixin):
             ])
         )
 
-    def update(self, last_date: date) -> None:
+    def update_population(self, last_date: date) -> None:
         days_to_go = (last_date - self.last_updated_date).days
         if days_to_go < 1:
             return
@@ -169,7 +172,7 @@ class Place(ModelMixin, ReprMixin):
             seed: int = None,
             rng: np.random.RandomState = None
         ) -> Generator[Place]:
-        from .database import SubdistrictModel
+        from ..database import SubdistrictModel
 
         if rng is None:
             rng = np.random.RandomState(seed)

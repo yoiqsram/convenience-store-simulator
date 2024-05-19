@@ -53,15 +53,15 @@ class Family(IdentityMixin, ReprMixin):
             if member.status == FamilyStatus.CHILD
         ])
 
-    def youngest_age(self, a_date: Union[datetime, date]) -> float:
+    def youngest_age(self, current_date: Union[datetime, date]) -> float:
         return min([
-            member.age(a_date)
+            member.age(current_date)
             for member in self.members
         ])
 
-    def total_purchasing_power(self, a_date: Union[datetime, date]) -> float:
+    def total_purchasing_power(self, current_date: Union[datetime, date]) -> float:
         return np.sum([
-            member.purchasing_power(a_date)
+            member.purchasing_power(current_date)
             for member in self.members
         ])
 
@@ -86,7 +86,7 @@ class Family(IdentityMixin, ReprMixin):
     def birth(
             self,
             place: Place,
-            a_date: date,
+            current_date: date,
             gender: Gender = None,
             anonymous: bool = True,
             seed: int = None,
@@ -103,7 +103,7 @@ class Family(IdentityMixin, ReprMixin):
             name=name,
             gender=gender,
             status=FamilyStatus.CHILD,
-            birth_date=a_date,
+            birth_date=current_date,
             birth_place=place
         )
         self.add(baby)
@@ -196,7 +196,7 @@ class Family(IdentityMixin, ReprMixin):
     @classmethod
     def generate(
             cls,
-            a_date: date,
+            current_date: date,
             place: Place,
             n_members: int = None,
             spending_rate: float = None,        
@@ -224,7 +224,7 @@ class Family(IdentityMixin, ReprMixin):
                 gender=gender,
                 age=age,
                 status=FamilyStatus.SINGLE,
-                a_date=a_date,
+                current_date=current_date,
                 birth_place=place,
                 rng=rng
             )
@@ -240,7 +240,7 @@ class Family(IdentityMixin, ReprMixin):
                     gender=Gender.MALE,
                     age=father_age,
                     status=FamilyStatus.PARENT,
-                    a_date=a_date,
+                    current_date=current_date,
                     birth_place=place,
                     rng=rng
                 )
@@ -251,7 +251,7 @@ class Family(IdentityMixin, ReprMixin):
                     gender=Gender.FEMALE,
                     age=mother_age,
                     status=FamilyStatus.PARENT,
-                    a_date=a_date,
+                    current_date=current_date,
                     birth_place=place,
                     rng=rng
                 )
@@ -268,7 +268,7 @@ class Family(IdentityMixin, ReprMixin):
                     gender=parent_gender,
                     age=parent_age,
                     status=FamilyStatus.PARENT,
-                    a_date=a_date,
+                    current_date=current_date,
                     birth_place=place,
                     rng=rng
                 )
@@ -287,7 +287,7 @@ class Family(IdentityMixin, ReprMixin):
                     gender=child_gender,
                     age=child_age,
                     status=FamilyStatus.CHILD,
-                    a_date=a_date,
+                    current_date=current_date,
                     birth_place=place,
                     rng=rng
                 )
@@ -307,7 +307,7 @@ class Family(IdentityMixin, ReprMixin):
     def bulk_generate(
             cls,
             n: int,
-            a_date: date,
+            current_date: date,
             place: Place,
             n_members_expected: float = None,
             purchasing_power_expected: float = None,
@@ -322,7 +322,7 @@ class Family(IdentityMixin, ReprMixin):
         spending_rates = cls.random_spending_rate(spending_rate_expected, size=n, rng=rng)
         return [
             Family.generate(
-                a_date,
+                current_date,
                 place,
                 n_members[i],
                 spending_rates[i],

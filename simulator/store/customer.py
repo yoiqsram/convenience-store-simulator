@@ -12,7 +12,7 @@ from .order import Order
 from .sku import Product, SKU
 
 if TYPE_CHECKING:
-    from ..simulation import Simulator
+    from ..simulator import Simulator
     from .store import Store
 
 
@@ -72,30 +72,29 @@ class Customer(Agent, DatetimeStepMixin):
     def n_members(self) -> int:
         return self.family.n_members
 
-    def update(self, last_date: date) -> None:
+    def update(self, current_date: date) -> None:
         if self._last_updated_date is not None:
-            days_to_go = (last_date - self._last_updated_date).days
+            days_to_go = (current_date - self._last_updated_date).days
             if days_to_go < 1:
                 return
 
             for product_name, days_left in self.product_need_days_left.copy().items():
                 self.product_need_days_left[product_name] = max(0, days_left - days_to_go)
 
-            self._last_updated_date = last_date
+            self._last_updated_date = current_date
 
         if self._next_step is None:
-            self._next_step = self.calculate_next_order_datetime(last_date)
+            self._next_step = self.calculate_next_order_datetime(current_date)
 
-    def step(self, env: Simulator) -> Tuple[datetime, Union[datetime, None]]:
-        current_datetime, next_datetime = super().step(env)
+    def step(self) -> Tuple[datetime, Union[datetime, None]]:
+        current_datetime, next_datetime = super().step()
         if next_datetime is None:
             return current_datetime, next_datetime
 
-        last_date = current_datetime.date()
-
+        current_date = current_datetime.date()
         if self.current_order is None:
             # Randomize buyer representative and get the family needs
-            buyer = self.random_buyer(last_date)
+            buyer = self.random_buyer(current_date)
             payment_method = self.random_payment_method()
             needed_products = self.get_needed_products()
             for product in needed_products:
@@ -104,14 +103,14 @@ class Customer(Agent, DatetimeStepMixin):
                 )
 
             # Calculate conversion from needs to purchase from the store, then order
-            order_products = self.get_order_products(needed_products, buyer, last_date)
+            order_products = self.get_order_products(needed_products, buyer, current_date)
 
             # Skip order if have no product to purchase, wouldn't spend, store is close or store is open but full
             if len(order_products) == 0 \
                     or self._rng.random() > self.family.spending_rate \
                     or not self.parent.is_open() \
                     or self.parent.is_full_queue():
-                self._next_step = self.calculate_next_order_datetime(last_date)
+                self._next_step = self.calculate_next_order_datetime(current_date)
                 return current_datetime, self._next_step
 
             # Collecting order products in the store
@@ -142,29 +141,41 @@ class Customer(Agent, DatetimeStepMixin):
         # Leave the store
         elif self.current_order.status == OrderStatus.DONE:
             self.current_order = None
-            self._next_step = self.calculate_next_order_datetime(last_date)
+            self._next_step = self.calculate_next_order_datetime(current_date)
             return current_datetime, self._next_step
 
         return current_datetime, next_datetime
 
-    def calculate_next_order_datetime(self, last_date: date) -> datetime:
+    def calculate_next_order_datetime(self, current_date: date) -> datetime:
         n = 1 + int(self._rng.poisson(7))
         most_needed_products = sorted(self.product_need_days_left.values())[:n]
         max_need_days_left = int(max(most_needed_products))
 
-        hour_loc = self._rng.choice(GlobalContext.STORE_PEAK_HOURS)
-        hour_spread = min(
-            hour_loc - GlobalContext.STORE_OPEN_HOUR,
-            GlobalContext.STORE_CLOSE_HOUR - hour_loc
-        )
         order_datetime = (
-            datetime(last_date.year, last_date.month, last_date.day)
+            datetime(current_date.year, current_date.month, current_date.day)
             + timedelta(days=max_need_days_left)
-            + timedelta(hours=self._rng.normal(hour_loc, hour_spread / 2.0))
         )
+        if self._rng.random() < 0.2:
+            order_datetime += timedelta(
+                hours=self._rng.uniform(
+                    GlobalContext.STORE_OPEN_HOUR,
+                    GlobalContext.STORE_CLOSE_HOUR
+                )
+            )
+
+        else:
+            hour_loc = self._rng.choice(GlobalContext.STORE_PEAK_HOURS)
+            hour_spread = min(
+                hour_loc - GlobalContext.STORE_OPEN_HOUR,
+                GlobalContext.STORE_CLOSE_HOUR - hour_loc
+            )
+            order_datetime += timedelta(
+                hours=self._rng.normal(hour_loc, hour_spread / 2.0)
+            )
+
         return order_datetime
 
-    def random_buyer(self, last_date: date) -> Person:
+    def random_buyer(self, current_date: date) -> Person:
         family_weight = {
             FamilyStatus.SINGLE: 1,
             FamilyStatus.PARENT: 8,
@@ -174,7 +185,7 @@ class Customer(Agent, DatetimeStepMixin):
         potential_buyers = [
             member
             for member in self.family.members
-            if member.age(last_date) > 12
+            if member.age(current_date) > 12
         ]
         potential_buyer_weights = [
             family_weight[member.status]
@@ -204,7 +215,7 @@ class Customer(Agent, DatetimeStepMixin):
             self,
             products: List[Product],
             buyer: Person,
-            last_date: date
+            current_date: date
         ) -> List[Product]:
         order_products = [
             product
@@ -212,7 +223,7 @@ class Customer(Agent, DatetimeStepMixin):
                 products,
                 self._rng.random(len(products))
             )
-            if random <= product.adjusted_modifier(buyer, last_date)
+            if random <= product.adjusted_modifier(buyer, current_date)
         ]
 
         for product in order_products.copy():

@@ -675,8 +675,8 @@ categories:
             pax: 2
           - name: Molto Softeners
             brand: Molto
-            price: ...
-            cost: ...
+            price: 1.87
+            cost: 1.56
             pax: 2
       - name: TISSUES & TOILET PAPERS
         modifier: 0.1

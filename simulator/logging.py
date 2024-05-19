@@ -6,7 +6,7 @@ from .context import GlobalContext
 
 def get_logger(
         name: str,
-        level: int = NOTSET
+        level: int = INFO
     ) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.addHandler(logging.StreamHandler())

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import asyncio
 import numpy as np
 from collections import deque
 from datetime import date, datetime, timedelta
-from typing import Deque, Dict, Iterable, List, Tuple, TYPE_CHECKING
+from typing import Deque, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
 
 from ..context import GlobalContext
-from ..core import MultiAgent, Environment, DatetimeStepMixin
-from ..database import StoreModel, ModelMixin, SubdistrictModel
+from ..core import MultiAgent, DatetimeStepMixin
+from ..database import Database, ModelMixin, StoreModel, SubdistrictModel, EmployeeShiftScheduleModel
 from ..enums import EmployeeShift, EmployeeStatus
+from ..logging import store_logger
 from .customer import Customer
 from .order import Order
 from .employee import Employee
@@ -60,23 +60,23 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
             EmployeeShift.SECOND: (GlobalContext.STORE_OPEN_HOUR + GlobalContext.STORE_CLOSE_HOUR) / 2
         }
         self.long_shift_hours = timedelta(hours=(GlobalContext.STORE_CLOSE_HOUR - GlobalContext.STORE_OPEN_HOUR) / 2)
-        self.employee_shift_schedules: Dict[Employee, EmployeeShift] = {
+        self.employee_shift_schedules: Dict[int, EmployeeShift] = {
             employee: EmployeeShift.NONE
             for employee in self._employees
         }
-        self.schedule_shifts()
+        self.schedule_shifts(shift_month=date(initial_datetime.year, initial_datetime.month, 1))
 
         self._cashiers: List[Employee] = []
         self.max_cashiers = max_cashiers if max_cashiers is not None else GlobalContext.STORE_MAX_CASHIERS        
 
         self._order_queue: Deque[Order] = deque(maxlen=max_queue)
-        self._order_queue_lock = asyncio.Lock()
 
         place_record: SubdistrictModel = self.place.record
         super().__init_model__(
             unique_identifiers={ 'subdistrict': place_record.id },
             subdistrict_id=place_record.id
         )
+        self.created_datetime = initial_datetime
 
         self.total_orders = 0
 
@@ -146,6 +146,7 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
             raise IndexError("There's no idle cashier machine.")
 
         self._cashiers.append(employee)
+        employee.status = EmployeeStatus.IDLE
 
     def dismiss_cashier(self, employee: Employee) -> None:
         try:
@@ -171,17 +172,9 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
     def is_full_queue(self) -> bool:
         return len(self._order_queue) == self._order_queue.maxlen
 
-    async def add_order_queue_async(self, order: Order) -> None:
-        async with self._order_queue_lock:
-            self._order_queue.append(order)
-
     def add_order_queue(self, order: Order) -> None:
         if order not in self._order_queue:
             self._order_queue.append(order)
-
-    async def remove_order_queue_async(self, order: Order) -> None:
-        async with self._order_queue_lock:
-            self._order_queue.remove(order)
 
     def remove_order_queue(self, order: Order) -> None:
         try:
@@ -189,26 +182,20 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
         except:
             pass
 
-    def step(self, env: Environment) -> Tuple[datetime, datetime]:
-        current_datetime, next_datetime = super().step(env)
-
-        # Register store and setup potential customers
-        if self.record.id is None:
-            self.created_datetime = current_datetime
+    def step(self) -> Tuple[datetime, Union[datetime, None]]:
+        current_datetime, next_datetime = super().step()
 
         # Update population daily
-        last_date = current_datetime.date()
-        if self.place.last_updated_date < last_date:
-            print(self.place.name, '- Daily updates', last_date.isoformat())
+        current_date = current_datetime.date()
+        if self.place.last_updated_date < current_date:
             self.update_market_population(current_datetime)
-
             self.total_orders = 0
 
         # Update schedule working shifts midnight before date 1st
         current_month = date(current_datetime.year, current_datetime.month, 1)
         next_month = date(next_datetime.year, next_datetime.month, 1)
         if next_month > current_month:
-            self.schedule_shifts(last_date)
+            self.schedule_shifts(current_date)
 
         return current_datetime, next_datetime
 
@@ -244,7 +231,9 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
             )
             self.add_agent(customer)
 
-    def schedule_shifts(self) -> None:
+        return
+
+    def schedule_shifts(self, shift_month: date) -> None:
         shifts = (
             [ EmployeeShift.FIRST, EmployeeShift.SECOND ]
             * int(np.ceil(self.n_employees / 2))
@@ -252,6 +241,47 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
         self._rng.shuffle(shifts)
 
         self.employee_shift_schedules = {
-            employee: shift
+            employee.record_id: shift
             for employee, shift in zip(self._employees, shifts)
         }
+
+        database: Database = EmployeeShiftScheduleModel._meta.database
+        with database.atomic():
+            created_datetime = datetime(shift_month.year, shift_month.month, shift_month.day)
+            shift_datetime = created_datetime
+            next_shift_datetime = shift_datetime + timedelta(days=1)
+            while shift_datetime.month != shift_month.month:
+                shift_start_datetime = (
+                    shift_datetime
+                    + timedelta(hours=self.start_shift_hours[shift])
+                )
+                shift_end_datetime = shift_start_datetime + self.long_shift_hours
+
+                try:
+                    for record in (
+                            EmployeeShiftScheduleModel.select()
+                            .where(EmployeeShiftScheduleModel.shift_start_datetime.between(shift_datetime, next_shift_datetime))
+                            .execute()
+                        ):
+                        record: EmployeeShiftScheduleModel
+                        shift = self.employee_shift_schedules[record.employee_id]
+                        record.shift_start_datetime = shift_start_datetime
+                        record.shift_end_datetime = shift_end_datetime
+                        record.created_datetime = created_datetime
+                        record.save()
+
+                except:
+                    for employee_id, shift in self.employee_shift_schedules.items():
+                        EmployeeShiftScheduleModel.create(
+                            employee=employee_id,
+                            shift_start_datetime=shift_start_datetime,
+                            shift_end_datetime=shift_end_datetime,
+                            current_datetime=created_datetime
+                        )
+
+                shift_datetime = next_shift_datetime
+                next_shift_datetime += timedelta(days=1)
+
+        store_logger.debug(
+            f'STORE SHIFTS: {[( employee_id, shift.name ) for employee_id, shift in self.employee_shift_schedules.items()]}.'
+        )

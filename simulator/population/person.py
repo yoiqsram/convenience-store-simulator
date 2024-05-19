@@ -42,18 +42,18 @@ class Person(ReprMixin):
 
         self.family: Union[Family, None] = None
 
-    def age(self, a_date: date) -> float:
-        age = (a_date - self.birth_date).days / DAYS_IN_YEAR
+    def age(self, current_date: date) -> float:
+        age = (current_date - self.birth_date).days / DAYS_IN_YEAR
         return age
 
-    def purchasing_power(self, a_date: Union[datetime, date]) -> float:
+    def purchasing_power(self, current_date: Union[datetime, date]) -> float:
         if self.max_purchasing_power == 0.0:
             return 0.0
 
         career_progress = (
             self.min_purchasing_power
             / self.max_purchasing_power
-            / (1.0 + 10.0 * np.exp(-0.25 * (self.age(a_date) - 18.0) / 20.0))
+            / (1.0 + 10.0 * np.exp(-0.25 * (self.age(current_date) - 18.0) / 20.0))
         )
         return career_progress * self.max_purchasing_power
 
@@ -83,7 +83,7 @@ class Person(ReprMixin):
             gender: Gender,
             age: float,
             status: FamilyStatus,
-            a_date: date,
+            current_date: date,
             birth_place: Place,
             anonymous: bool = True,
             seed: int = None,
@@ -93,7 +93,7 @@ class Person(ReprMixin):
             rng = np.random.RandomState(seed)
 
         name = Person.generate_name(gender, seed=int(rng.random() * 1_000_000)) if not anonymous else None
-        birth_date = a_date - timedelta(days=age * DAYS_IN_YEAR)
+        birth_date = current_date - timedelta(days=age * DAYS_IN_YEAR)
         return Person(
             name=name,
             gender=gender,

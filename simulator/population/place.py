@@ -72,59 +72,72 @@ class Place(ModelMixin, ReprMixin):
             ])
         )
 
-    def update_population(self, last_date: date) -> None:
-        days_to_go = (last_date - self.last_updated_date).days
+    def update_population(self, current_date: date) -> None:
+        days_to_go = (current_date - self.last_updated_date).days
         if days_to_go < 1:
             return
 
+        fertility_rate = self.fertility_rate / DAYS_IN_YEAR
         for _ in range(days_to_go):
-            self.last_updated_date = last_date
+            self.last_updated_date += timedelta(days=1)
 
             n_families = len(self.families)
 
-            would_births = self._rng.random(n_families) < self.fertility_rate / DAYS_IN_YEAR
-            new_born_males = self._rng.random(n_families) > 0.5
+            max_members = Family.random_max_n_members(size=n_families, rng=self._rng)
 
-            life_expectancies = self._rng.normal(
+            _birth_probs = self._rng.random(n_families)
+            would_births = _birth_probs < fertility_rate
+            new_born_males = (_birth_probs / fertility_rate) < 0.5
+
+            die_ages = self._rng.normal(
                 self.life_expectancy,
                 self.life_expectancy * 0.1,
                 size=n_families
             )
-            would_dies = self._rng.random(n_families) < self.fertility_rate * 0.1
+            would_dies = self._rng.random(n_families) < fertility_rate
 
             marry_ages = self._rng.normal(
                 self.marry_age,
                 self.marry_age * 0.1,
                 size=n_families
             )
-            would_marries = self._rng.random(n_families) < 0.005
+            would_marries = self._rng.random(n_families) < fertility_rate
 
             unmarried_adults: List[Person] = []
-            for family, would_birth, new_born_male, life_expectancy, would_die, marry_age, would_marry in zip(
+            for family, max_members_, would_birth, new_born_male, die_age, would_die, marry_age, would_marry in zip(
                     self.families,
+                    max_members,
                     would_births,
                     new_born_males,
-                    life_expectancies,
+                    die_ages,
                     would_dies,
                     marry_ages,
                     would_marries
                 ):
+                family: Family
+                max_members_: int
+                would_birth: bool
+                new_born_male: bool
+                die_age: float
+                would_die: bool
+                marry_age: float
+                would_marry: bool
+
                 # Born new babies
                 if family.n_parents == 2 \
-                        and family.youngest_age(last_date) > 1:
-                    max_members = Family.random_max_n_members(rng=self._rng)
-                    if family.n_members < max_members \
+                        and family.youngest_age(current_date) > 1:
+                    if family.n_members < max_members_ \
                             and would_birth:
                         family.birth(
                             place=self,
-                            a_date=last_date,
+                            current_date=current_date,
                             gender=Gender.MALE if new_born_male else Gender.FEMALE,
                             rng=self._rng
                         )
 
                 for person in family.members:
-                    age = person.age(last_date)
-                    if age > life_expectancy \
+                    age = person.age(current_date)
+                    if age > die_age \
                             and would_die:
                         family.die(person)
 
@@ -146,6 +159,8 @@ class Place(ModelMixin, ReprMixin):
                 for family in self.families
                 if family.n_members > 0
             ]
+
+        return
 
     def register_birth(self, person: Person) -> None:
         prefix_id = (

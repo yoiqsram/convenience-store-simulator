@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-import asyncio
+import time
 from datetime import datetime, timedelta
 from typing import Iterable, Tuple, Union
 
@@ -25,15 +25,16 @@ class BaseEnvironment(StepMixin, MultiAgentMixin, RandomGeneratorMixin, ReprMixi
         super().__init_rng__(seed)
 
     def step(self) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
-        current_step, next_step = super().step()
+        self._current_step = self._next_step
 
         for agent in self._agents:
-            agent_next_step = agent.next_step()
-            if agent_next_step is not None \
-                    and agent_next_step <= current_step:
-                agent.step(env=self)
+            next_step = agent._next_step
+            if next_step is not None \
+                    and next_step <= self._current_step:
+                agent.step()
 
-        return current_step, next_step
+        self._next_step = self.get_next_step()
+        return self._current_step, self._next_step
 
     @abc.abstractmethod
     def run(self, *args, **kwargs) -> None: ...
@@ -88,6 +89,10 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
 
         self._real_init_datetime = datetime.now()
 
+    @property
+    def step_delay(self) -> int:
+        return self._interval.total_seconds() / self.speed
+
     def total_time_elapsed(self) -> timedelta:
         return self._calculate_interval(self._initial_step, self._current_step)
 
@@ -98,16 +103,17 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
         return super().step()
 
     def run(self):
-        current_datetime = self.current_datetime()
         next_datetime = self.next_datetime()
         while next_datetime is not None:
-            interval = (next_datetime - current_datetime).total_seconds()
-            delay = max(0.0, interval / self.speed)
+            _, next_datetime = self.step_await()
 
-            current_datetime, next_datetime = asyncio.run(self._step_await(delay))
-
-    async def _step_await(self, delay: float) -> Tuple[datetime, Union[datetime, None]]:
-        delay_task = asyncio.create_task(asyncio.sleep(delay))
+    def step_await(self) -> Tuple[datetime, Union[datetime, None]]:
+        start_datetime = datetime.now()
         current_datetime, next_datetime = self.step()
-        await delay_task
+
+        elapsed_seconds = (datetime.now() - start_datetime).total_seconds()
+        await_seconds = self.step_delay - elapsed_seconds
+        if await_seconds > 0:
+            time.sleep(await_seconds)
+
         return current_datetime, next_datetime

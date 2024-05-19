@@ -50,6 +50,8 @@ def _populate_payment_method(created_datetime: datetime) -> None:
 
 
 def _populate_items(created_datetime: datetime) -> None:
+    import numpy as np
+
     item_config = GlobalContext.get_config_item()
     for category in item_config['categories']:
         try:
@@ -83,8 +85,8 @@ def _populate_items(created_datetime: datetime) -> None:
                     SKUModel.create(
                         name=sku['name'],
                         brand=sku['brand'],
-                        price=sku['price'],
-                        cost=sku['cost'],
+                        price=np.ceil(sku['price'] * GlobalContext.CURRENCY_MULTIPLIER / 100) * 100,
+                        cost=sku['cost'] * GlobalContext.CURRENCY_MULTIPLIER,
                         product=product_record.id,
                         created_datetime=created_datetime,
                         modified_datetime=created_datetime

@@ -48,8 +48,8 @@ class OrderStatus(Enum):
 
 class EmployeeAttendanceStatus(Enum):
     OUT_OF_OFFICE = 0
-    BEGIN_SHIFT = 0
-    COMPLETE_SHIFT = 0
+    BEGIN_SHIFT = 1
+    COMPLETE_SHIFT = 2
 
 
 class EmployeeShift(Enum):

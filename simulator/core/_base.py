@@ -60,14 +60,14 @@ class StepMixin:
             self,
             initial_step: _STEP_TYPE,
             interval: _INTERVAL_TYPE,
-            max_step: _STEP_TYPE = None,
+            max_step: _STEP_TYPE = None
         ) -> None:
         self._initial_step = initial_step
         self._max_step = max_step
         self._interval = interval
 
         self._current_step = self._initial_step
-        self._next_step = self.get_next_step()
+        self._next_step = self._initial_step + self._interval
 
     def _calculate_interval(
             self,
@@ -131,10 +131,10 @@ class StepMixin:
         if self._current_step is None:
             raise StopIteration()
 
-        self._next_step = self.get_next_step()
+        self._next_step = self.get_next_step(*args, **kwargs)
         return self._current_step, self._next_step
 
-    def get_next_step(self) -> Union[_STEP_TYPE, None]:
+    def get_next_step(self, *args, **kwargs) -> Union[_STEP_TYPE, None]:
         next_step = self._current_step + self._interval
         if self._max_step is not None \
                 and next_step > self._max_step:
@@ -170,10 +170,10 @@ class IntegerStepMixin(StepMixin):
         return super().next_step()
 
     def step(self, *args, **kwargs) -> Tuple[int, Union[int, None]]:
-        return super().step()
+        return super().step(*args, **kwargs)
 
-    def get_next_step(self) -> Union[int, None]:
-        return super().get_next_step()
+    def get_next_step(self, *args, **kwargs) -> Union[int, None]:
+        return super().get_next_step(*args, **kwargs)
 
 
 class FloatStepMixin(StepMixin):
@@ -204,10 +204,10 @@ class FloatStepMixin(StepMixin):
         return super().next_step()
 
     def step(self, *args, **kwargs) -> Tuple[float, Union[float, None]]:
-        return super().step()
+        return super().step(*args, **kwargs)
 
-    def get_next_step(self) -> Union[float, None]:
-        return super().get_next_step()
+    def get_next_step(self, *args, **kwargs) -> Union[float, None]:
+        return super().get_next_step(*args, **kwargs)
 
 
 class DatetimeStepMixin(StepMixin):
@@ -262,7 +262,7 @@ class DatetimeStepMixin(StepMixin):
             return next_step.date()
 
     def step(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
-        return super().step()
+        return super().step(*args, **kwargs)
 
-    def get_next_step(self) -> Union[datetime, None]:
-        return super().get_next_step()
+    def get_next_step(self, *args, **kwargs) -> Union[datetime, None]:
+        return super().get_next_step(*args, **kwargs)

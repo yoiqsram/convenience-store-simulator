@@ -109,6 +109,6 @@ class Order(ReprMixin):
                     created_datetime=current_datetime
                 )
 
-            self._order_record.payment_method = self.payment_method.name
+            self._order_record.payment_method = self.payment_method.value
             self._order_record.complete_datetime = self.complete_datetime
             self._order_record.save()

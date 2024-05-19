@@ -6,7 +6,7 @@ from typing import Any, List, Iterable, Tuple, Union, TYPE_CHECKING
 from ._base import IdentityMixin, RandomGeneratorMixin, ReprMixin, StepMixin, _STEP_TYPE, _INTERVAL_TYPE
 
 if TYPE_CHECKING:
-    from .environment import Environment
+    from .environment import BaseEnvironment
 
 
 class Agent(IdentityMixin, StepMixin, RandomGeneratorMixin, ReprMixin, metaclass=abc.ABCMeta):
@@ -18,16 +18,31 @@ class Agent(IdentityMixin, StepMixin, RandomGeneratorMixin, ReprMixin, metaclass
             interval: _INTERVAL_TYPE,
             max_step: _STEP_TYPE = None,
             seed: int = None) -> None:
-        self.parent: Union[MultiAgent, None] = None
+        self.parent: Union[MultiAgent, BaseEnvironment, None] = None
 
         super().__init_id__()
         super().__init_step__(initial_step, interval, max_step)
         super().__init_rng__(seed)
 
-    def other_agents(self, env: Environment) -> Iterable[Agent]:
-        for agent in env.agents():
+    def other_agents(self) -> Iterable[Agent]:
+        if self.parent is None:
+            raise IndexError()
+
+        for agent in self.parent.agents():
             if agent != self:
                 yield agent
+
+    def get_next_step(self) -> Union[_STEP_TYPE, None]:
+        if self.parent is None:
+            next_step = self.next_step()
+        else:
+            next_step = self.parent.next_step()
+
+        if self._max_step is not None \
+                and next_step > self._max_step:
+            return
+
+        return next_step
 
 
 class MultiAgentMixin:
@@ -73,13 +88,17 @@ class MultiAgent(Agent, MultiAgentMixin):
         super().__init__(initial_step, interval, max_step, seed)
         super().__init_agents__(agents)
 
-    def step(self, env: Environment) -> Tuple[Any, Any]:
-        self._last_step = env.current_step()
+    def step(self):
+        if self.parent is None:
+            self._current_step = self._next_step
+        else:
+            self._current_step = self.parent.current_step()
+
         for agent in self._agents:
             next_step = agent._next_step
             if next_step is not None \
-                    and next_step <= self._last_step:
-                agent.step(env=env)
+                    and next_step <= self._current_step:
+                agent.step()
 
         self._next_step = self.get_next_step()
-        return self._last_step, self._next_step
+        return self._current_step, self._next_step

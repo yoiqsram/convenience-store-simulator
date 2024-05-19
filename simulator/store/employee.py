@@ -15,7 +15,7 @@ from ..population import Person, Place
 from .order import Order
 
 if TYPE_CHECKING:
-    from ..simulation import Simulator
+    from ..simulator import Simulator
     from .store import Store
 
 
@@ -68,27 +68,25 @@ class Employee(Agent, ModelMixin):
     def name(self) -> str:
         return self.person.name
 
-    def step(self, env: Simulator) -> Tuple[datetime, Union[datetime, None]]:
-        current_datetime, next_datetime = super().step(env)
+    def step(self) -> Tuple[datetime, Union[datetime, None]]:
+        current_datetime, next_datetime = super().step()
 
-        # Register to database for the first time
-        if self.record.id is None:
-            self.created_datetime = current_datetime
-
-        # Schedule today shift
+        # Schedule next day shift on the midnight
         if self.schedule_shift_start_datetime is None:
             self.schedule_shift_attendance(
-                self.parent.employee_shift_schedules[self],
+                self.parent.employee_shift_schedules[self.record_id],
                 current_datetime.date()
             )
+            return current_datetime, next_datetime
 
         # Begin shift
-        elif self.today_shift_start_datetime is None \
+        elif self.status == EmployeeStatus.OFF \
+                and self.today_shift_start_datetime is None \
                 and self.schedule_shift_start_datetime <= current_datetime:
-            store_logger.info(
+            store_logger.debug(
                 f'{current_datetime.isoformat()}'
                 f' - STORE {self.parent.place_name}'
-                f' - EMPLOYEE COMPLETE SHIFT'
+                f' - EMPLOYEE BEGIN SHIFT'
                 f'- {self.name}[{self.record_id}].'
                 f' Would end shift at {self.schedule_shift_end_datetime.isoformat()}.'
             )
@@ -100,23 +98,31 @@ class Employee(Agent, ModelMixin):
             self.parent.assign_cashier(self)
 
         # Complete shift, if not busy and there'll be enough cashiers in the store
-        elif self.today_shift_end_datetime is None \
-                and self.status == EmployeeStatus.IDLE \
+        elif self.status == EmployeeStatus.IDLE \
+                and self.today_shift_end_datetime is None \
                 and self.schedule_shift_end_datetime <= current_datetime \
                 and (self.parent.n_cashiers + self.parent.total_active_shift_employees() - 1) > 0:
-            store_logger.info(
+            store_logger.debug(
                 f'{current_datetime.isoformat()}'
                 f' - STORE {self.parent.place_name}'
                 f' - EMPLOYEE COMPLETE SHIFT'
                 f'- {self.name}[{self.record_id}].'
             )
             self.complete_shift(current_datetime)
-            self._next_step = datetime(current_datetime.year, current_datetime.month, current_datetime.day) + timedelta(days=1)
+            self._next_step = (
+                datetime(
+                    current_datetime.year,
+                    current_datetime.month,
+                    current_datetime.day
+                )
+                + timedelta(days=1)
+            )
             return current_datetime, self._next_step
 
         # Wait for order from queue and assign it
         if self.current_order is None:
-            if self.parent.n_order_queue > 0:
+            if self.status == EmployeeStatus.IDLE \
+                    and self.parent.n_order_queue > 0:
                 self.parent.assign_order_queue(self)
 
         # Checkout order
@@ -198,6 +204,8 @@ class Employee(Agent, ModelMixin):
         self.shift = EmployeeShift.NONE
         self.status = EmployeeStatus.OFF
         self.today_shift_end_datetime = current_datetime
+        self.schedule_shift_start_datetime = None
+        self.schedule_shift_end_datetime = None
 
     def calculate_checkout_time(self, order: Order) -> float:
         checkout_time = (
@@ -223,8 +231,8 @@ class Employee(Agent, ModelMixin):
         )
         return checkout_time
 
-    def estimate_age_group(self, person: Person, last_date: date) -> AgeGroup:
-        age = person.age(last_date) + self._rng.normal(0, (6.0 - self.age_recognition_rate) * 2)
+    def estimate_age_group(self, person: Person, current_date: date) -> AgeGroup:
+        age = person.age(current_date) + self._rng.normal(0, (6.0 - self.age_recognition_rate) * 2)
 
         if age < AgeGroup.KID.value:
             return AgeGroup.KID
@@ -244,7 +252,7 @@ class Employee(Agent, ModelMixin):
     def generate(
             cls,
             place: Place,
-            a_datetime: datetime,
+            current_datetime: datetime,
             clock_interval: float,
             age_recognition_loc: float = 4.0,
             age_recognition_scale: float = 0.5,
@@ -304,14 +312,14 @@ class Employee(Agent, ModelMixin):
             gender=gender,
             age=age,
             status=FamilyStatus.SINGLE,
-            a_date=a_datetime.date(),
+            current_date=current_datetime.date(),
             birth_place=place,
             anonymous=False,
             seed=rng.get_state()[1][0]
         )
         return cls(
             person,
-            a_datetime,
+            current_datetime,
             clock_interval,
             age_recognition_rate=age_recognition_rate,
             counting_skill_rate=counting_skill_rate,
@@ -323,7 +331,7 @@ class Employee(Agent, ModelMixin):
     def bulk_generate(
             cls,
             n: int,
-            last_date: date,
+            current_date: date,
             place: Place,
             age_recognition_loc: float = 4.0,
             age_recognition_scale: float = 0.5,
@@ -341,7 +349,7 @@ class Employee(Agent, ModelMixin):
 
         return [
             cls.generate(
-                last_date,
+                current_date,
                 place,
                 age_recognition_loc,
                 age_recognition_scale,

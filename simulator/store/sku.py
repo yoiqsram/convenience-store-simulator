@@ -49,12 +49,12 @@ class Product(ModelMixin, ReprMixin):
     def adjusted_modifier(
             self,
             person: Person,
-            last_date: date
+            current_date: date
         ) -> float:
         multiplier = 1.0
 
         # Adjust modifier based on demographic
-        age = person.age(last_date)
+        age = person.age(current_date)
         for modifier in self.demographic_modifiers:
             if modifier['gender'] is not None \
                     and person.gender != modifier['gender']:
@@ -71,7 +71,7 @@ class Product(ModelMixin, ReprMixin):
             multiplier += modifier['value']
 
         # Adjust modifier based on weekday
-        weekday = last_date.weekday()
+        weekday = current_date.weekday()
         if weekday == 0:
             multiplier += 0.1
         elif weekday == 5:

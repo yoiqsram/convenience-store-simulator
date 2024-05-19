@@ -1,4 +1,5 @@
 from .base import *
+from .store import SubdistrictModel
 
 __all__ = [
     'EmployeeModel',
@@ -13,7 +14,7 @@ class EmployeeModel(BaseModel):
     name = CharField()
     gender = CharField()
     birth_date = DateField()
-    birth_place = CharField()
+    birth_place = ForeignKeyField(SubdistrictModel)
 
     modified_datetime = DateTimeField()
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from peewee import (
     AutoField, BigAutoField, BigIntegerField,
@@ -39,9 +41,9 @@ class ModelMixin:
 
         self._record: BaseModel
         try:
-            query = self.__class__.__model__.select()
+            query = self.__model__.select()
             for name, value in self._unique_identifiers.items():
-                query = query.where(getattr(self.__class__.__model__, name) == value)
+                query = query.where(getattr(self.__model__, name) == value)
 
             self._record = query.get()
 
@@ -49,7 +51,7 @@ class ModelMixin:
                 setattr(self._record, name, value)
 
         except:
-            self._record = self.__class__.__model__(
+            self._record = self.__model__(
                 **self._unique_identifiers,
                 **kwargs
             )

@@ -4,15 +4,14 @@ import numpy as np
 from datetime import date, datetime, timedelta
 from typing import Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
 
-from ..context import GlobalContext
+from ..context import GlobalContext, DAYS_IN_YEAR
 from ..core import Agent, DatetimeStepMixin
-from ..enums import FamilyStatus, OrderStatus, PaymentMethod
+from ..enums import AgeGroup, FamilyStatus, OrderStatus, PaymentMethod
 from ..population import Family, Person
 from .order import Order
 from .sku import Product, SKU
 
 if TYPE_CHECKING:
-    from ..simulator import Simulator
     from .store import Store
 
 
@@ -93,6 +92,12 @@ class Customer(Agent, DatetimeStepMixin):
 
         current_date = current_datetime.date()
         if self.current_order is None:
+            # Unfortunately some kids could be orphaned and only be able to order when they reach teenage
+            oldest_age = self.family.oldest_age(current_date)
+            if oldest_age < AgeGroup.KID.value:
+                self._next_step = current_datetime + timedelta(days=(AgeGroup.KID.value - oldest_age) * DAYS_IN_YEAR)
+                return current_datetime, self._next_step
+
             # Randomize buyer representative and get the family needs
             buyer = self.random_buyer(current_date)
             payment_method = self.random_payment_method()
@@ -182,11 +187,7 @@ class Customer(Agent, DatetimeStepMixin):
             FamilyStatus.CHILD: 1
         }
 
-        potential_buyers = [
-            member
-            for member in self.family.members
-            if member.age(current_date) > 12
-        ]
+        potential_buyers = [ member for member in self.family.members ]
         potential_buyer_weights = [
             family_weight[member.status]
             for member in potential_buyers

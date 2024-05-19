@@ -6,7 +6,7 @@ from typing import Iterable, List, Tuple, Union, TYPE_CHECKING
 
 from ..core import IdentityMixin, ReprMixin
 from ..context import GlobalContext
-from ..enums import FamilyStatus, Gender
+from ..enums import AgeGroup, FamilyStatus, Gender
 from .person import Person
 
 if TYPE_CHECKING:
@@ -15,11 +15,7 @@ if TYPE_CHECKING:
 
 class Family(IdentityMixin, ReprMixin):
     __repr_attrs__ = ( 'n_members', )
-    __default_params__ = {
-        'family_single_male_prob': 0.7,
-        'family_married_prob': 0.75,
-        'family_single_parent_and_male_prob': 0.4
-    }
+
     def __init__(
             self,
             members: Iterable[Person],
@@ -55,6 +51,12 @@ class Family(IdentityMixin, ReprMixin):
 
     def youngest_age(self, current_date: Union[datetime, date]) -> float:
         return min([
+            member.age(current_date)
+            for member in self.members
+        ])
+
+    def oldest_age(self, current_date: Union[datetime, date]) -> float:
+        return max([
             member.age(current_date)
             for member in self.members
         ])
@@ -212,12 +214,11 @@ class Family(IdentityMixin, ReprMixin):
         if n_members is None:
             n_members = cls.random_max_n_members(n_members_expected, rng=rng)
 
+        n_members = int(n_members)
         members: List[Person] = []
         # Single family
-        n_members = int(n_members)
         if n_members == 1:
-            FAMILY_SINGLE_MALE_PROB = cls.__default_params__['family_single_male_prob']
-            gender = Gender.MALE if rng.random() < FAMILY_SINGLE_MALE_PROB else Gender.FEMALE
+            gender = Gender.MALE if rng.random() < GlobalContext.POPULATION_FAMILY_SINGLE_AND_MALE_PROB else Gender.FEMALE
             age = 18.0 + rng.gamma(1.0, 5.0)
 
             single = Person.generate(
@@ -233,9 +234,13 @@ class Family(IdentityMixin, ReprMixin):
         # Parent(s) with/without child(ren)
         elif n_members >= 2:
             # Family with married couple
-            FAMILY_MARRIED_PROB = cls.__default_params__['family_married_prob']
-            if rng.random() < FAMILY_MARRIED_PROB:
-                father_age = 18.0 + n_members + rng.gamma(3.0, 5.0)
+            if rng.random() < GlobalContext.POPULATION_FAMILY_MARRIED_PROB:
+                father_age_min = AgeGroup.TEENAGE.value + n_members * 2
+                if rng.random() < GlobalContext.POPULATION_FAMILY_MARRIED_AND_ELDER_PROB:
+                    father_age = AgeGroup.MIDDLE_ADULT.value + rng.gamma(3.0, 5.0)
+                else:
+                    father_age = father_age_min + rng.gamma(3.0, 5.0)
+
                 father = Person.generate(
                     gender=Gender.MALE,
                     age=father_age,
@@ -246,7 +251,8 @@ class Family(IdentityMixin, ReprMixin):
                 )
                 members.append(father)
 
-                mother_age = max(16.0 + n_members, rng.normal(father_age, 3.0))
+                mother_age_min = father_age_min - 2.0
+                mother_age = max(mother_age_min, rng.normal(father_age, 3.0))
                 mother = Person.generate(
                     gender=Gender.FEMALE,
                     age=mother_age,
@@ -261,8 +267,7 @@ class Family(IdentityMixin, ReprMixin):
 
             # Family with single parent
             else:
-                FAMILY_SINGLE_PARENT_AND_MALE_PROB = cls.__default_params__['family_single_parent_and_male_prob']
-                parent_gender = Gender.MALE if rng.random() < FAMILY_SINGLE_PARENT_AND_MALE_PROB else Gender.FEMALE
+                parent_gender = Gender.MALE if rng.random() < GlobalContext.POPULATION_FAMILY_SINGLE_PARENT_AND_MALE_PROB else Gender.FEMALE
                 parent_age = 18.0 + n_members + rng.gamma(4.0, 5.0)
                 single_parent = Person.generate(
                     gender=parent_gender,

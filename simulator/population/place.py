@@ -101,7 +101,7 @@ class Place(ModelMixin, ReprMixin):
                 self.marry_age * 0.1,
                 size=n_families
             )
-            would_marries = self._rng.random(n_families) < fertility_rate
+            would_marries = self._rng.random(n_families) < (fertility_rate * 2.0)
 
             unmarried_adults: List[Person] = []
             for family, max_members_, would_birth, new_born_male, die_age, would_die, marry_age, would_marry in zip(
@@ -125,7 +125,7 @@ class Place(ModelMixin, ReprMixin):
 
                 # Born new babies
                 if family.n_parents == 2 \
-                        and family.youngest_age(current_date) > 1:
+                        and family.youngest_age(current_date) > 1.0:
                     if family.n_members < max_members_ \
                             and would_birth:
                         family.birth(
@@ -142,7 +142,7 @@ class Place(ModelMixin, ReprMixin):
                         family.die(person)
 
                     # Gather unmarried adults
-                    if person.status in (FamilyStatus.SINGLE, FamilyStatus.CHILD) \
+                    elif person.status in (FamilyStatus.SINGLE, FamilyStatus.CHILD) \
                             and age > marry_age \
                             and would_marry:
                         unmarried_adults.append(person)

@@ -85,6 +85,10 @@ class GlobalContext:
     POPULATION_MARRY_AGE: float = get_environment_variable('SIMULATOR_POPULATION_MARRY_AGE', float, 22.5)
     POPULATION_PURCHASING_POWER: float = get_environment_variable('SIMULATOR_POPULATION_PURCHASING_POWER', float, 3400.0)
     POPULATION_SPENDING_RATE: float = get_environment_variable('SIMULATOR_POPULATION_SPENDING_RATE', float, 0.4)
+    POPULATION_FAMILY_MARRIED_PROB: float = get_environment_variable('SIMULATOR_POPULATION_FAMILY_MARRIED', float, 0.75)
+    POPULATION_FAMILY_MARRIED_AND_ELDER_PROB: float = get_environment_variable('SIMULATOR_POPULATION_FAMILY_SINGLE_AND_MALE', float, 0.1)
+    POPULATION_FAMILY_SINGLE_AND_MALE_PROB: float = get_environment_variable('SIMULATOR_POPULATION_FAMILY_SINGLE_AND_MALE', float, 0.7)
+    POPULATION_FAMILY_SINGLE_PARENT_AND_MALE_PROB: float = get_environment_variable('SIMULATOR_POPULATION_FAMILY_SINGLE_AND_MALE', float, 0.4)
 
     INITIAL_STORES: int = get_environment_variable('SIMULATOR_INITIAL_STORES', int, 1)
     STORE_POPULATION: int = get_environment_variable('SIMULATOR_STORE_POPULATION', int, 10_000)

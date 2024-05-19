@@ -100,12 +100,7 @@ class Simulator(DatetimeEnvironment):
                 and current_datetime.second == 0:
             simulator_logger.info(repr(self))
             for i, store in enumerate(self.stores(), 1):
-                store_logger.info(
-                    f'  #{i} {store}'
-                    f'. Active employees: {", ".join([f"{employee.name}[{employee.record_id}][{employee.shift.name}]" for employee in store.get_active_employees()])}'
-                    f'. Total orders: {store.total_orders}'
-                    f'. Time elapsed: {self.total_real_time_elapsed().total_seconds():.2f}s.'
-                )
+                store_logger.info(f'  #{i} {store.place_name}. Total market population: {store.total_market_population()}.')
 
         if current_datetime.hour != 0 \
                 and current_datetime.second == 0 \

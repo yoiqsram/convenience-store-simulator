@@ -3,7 +3,7 @@ from typing import Iterable, List
 
 from .core import DatetimeEnvironment
 from .context import GlobalContext
-from .database import create_database
+from .database import Database, BaseModel, VersionModel, create_database
 from .logging import simulator_logger, store_logger
 from .population import Place
 from .store import Store
@@ -40,11 +40,14 @@ class Simulator(DatetimeEnvironment):
             seed=seed
         )
 
-        # ONLY FOR TESTING!!!
-        if not GlobalContext.SQLITE_DB_PATH.exists():
+        # Create simulator database if not available
+        try:
+            if VersionModel.select().count() == 0:
+                raise
+        except:
             create_database(initial_datetime)
-            raise SystemExit
 
+        # Generate stores
         for store in self.generate_stores(
                 initial_stores if initial_stores is not None else GlobalContext.INITIAL_STORES,
                 initial_store_population if initial_store_population is not None else GlobalContext.STORE_POPULATION,

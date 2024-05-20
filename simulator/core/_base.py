@@ -121,7 +121,8 @@ class StepMixin:
             raise StopIteration()
 
         next_step = self.get_next_step(current_step)
-        if next_step <= current_step:
+        if next_step is not None \
+                and next_step <= current_step:
             raise ValueError(
                 'Next step should be higher than current step. '
                 f"Please check the 'get_next_step' method in {repr(self.__class__.__name__)} class. "

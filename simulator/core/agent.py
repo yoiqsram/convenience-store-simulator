@@ -105,7 +105,8 @@ class MultiAgentStepMixin(StepMixin):
 
     def get_next_step(self, current_step: _STEP_TYPE) -> Union[_STEP_TYPE, None]:
         next_step = super().get_next_step(current_step)
-        if not self.skip_step:
+        if not self.skip_step \
+                or next_step is None:
             return next_step
 
         min_agent_next_step = None
@@ -123,12 +124,14 @@ class MultiAgentStepMixin(StepMixin):
 
     def step(self, *args, **kwargs) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
         self._rc = True
+
         next_step = self.next_step()
-        for agent in self.agents():
-            agent_next_step = agent.next_step()
-            if agent_next_step is not None \
-                    and agent_next_step <= next_step:
-                agent.step()
+        if next_step is not None:
+            for agent in self.agents():
+                agent_next_step = agent.next_step()
+                if agent_next_step is not None \
+                        and agent_next_step <= next_step:
+                    agent.step()
 
         self._rc = False
         return super().step(*args, **kwargs)

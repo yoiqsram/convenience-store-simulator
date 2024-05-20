@@ -64,14 +64,17 @@ def get_environment_variable(
 class GlobalContext:
     BASE_DIR: Path = get_environment_variable('SIMULATOR_BASE_DIR', Path, Path(__file__).resolve().parents[1])
     CONFIG_DIR: Path = get_environment_variable('SIMULATOR_CONFIG_DIR', Path, BASE_DIR / 'config')
+    DATA_DIR: Path = get_environment_variable('SIMULATOR_DATA_DIR', Path, BASE_DIR / 'data')
 
-    SQLITE_DB_PATH: Path = get_environment_variable('SQLITE_DB_PATH', Path, BASE_DIR / 'data' / 'stores.db')
+    SQLITE_DB_PATH: Path = get_environment_variable('SQLITE_DB_PATH', Path, DATA_DIR / 'stores.db')
 
     POSTGRES_DB_NAME: str = get_environment_variable('POSTGRES_DB_NAME', default='store')
     POSTGRES_DB_USERNAME: _STR_NONE = get_environment_variable('POSTGRES_DB_USERNAME')
     POSTGRES_DB_PASSWORD: _STR_NONE = get_environment_variable('POSTGRES_DB_PASSWORD')
     POSTGRES_DB_HOST: _STR_NONE = get_environment_variable('POSTGRES_DB_HOST')
     POSTGRES_DB_PORT: _STR_NONE = get_environment_variable('POSTGRES_DB_PORT')
+
+    CHECKPOINT_SESSION_PATH: Path = get_environment_variable('SIMULATOR_CHECKPOINT_SESSION_PATH', Path, DATA_DIR / 'checkpoint.pkl')
 
     INITIAL_DATE: date = get_environment_variable('SIMULATOR_INITIAL_DATE', date, date.today())
     CLOCK_SPEED: float = get_environment_variable('SIMULATOR_SPEED', float, 1.0)

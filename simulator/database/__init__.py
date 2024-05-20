@@ -3,7 +3,7 @@ from peewee import Database, IntegrityError
 
 from ..context import GlobalContext
 from ..enums import PaymentMethod
-from .base import BaseModel, ModelMixin
+from .base import BaseModel, VersionModel, ModelMixin
 from .employee import *
 from .sku import *
 from .order import *
@@ -37,6 +37,11 @@ def create_database(created_datetime: datetime = None) -> Database:
     _populate_items(created_datetime)
     _populate_locations(created_datetime)
 
+    database.create_tables([ VersionModel ])
+    VersionModel.create(
+        created_datetime=created_datetime,
+        modified_datetime=created_datetime
+    )
     return database
 
 

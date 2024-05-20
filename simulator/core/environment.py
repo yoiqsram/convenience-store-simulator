@@ -3,9 +3,13 @@ from __future__ import annotations
 import abc
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Iterable, Tuple, Union
 
-from ._base import RandomGeneratorMixin, ReprMixin, DatetimeStepMixin, _STEP_TYPE, _INTERVAL_TYPE
+from ._base import (
+    RandomGeneratorMixin, ReprMixin, DatetimeStepMixin,
+    _STEP_TYPE, _INTERVAL_TYPE, cast_interval
+)
 from .agent import Agent, MultiAgentStepMixin
 
 
@@ -25,7 +29,7 @@ class BaseEnvironment(MultiAgentStepMixin, RandomGeneratorMixin, ReprMixin, meta
         super().__init_rng__(seed)
 
     @abc.abstractmethod
-    def run(self, *args, **kwargs) -> None: ...
+    def run(self, interval: _INTERVAL_TYPE = None, *args, **kwargs) -> None: ...
 
 
 class Environment(BaseEnvironment):
@@ -48,9 +52,14 @@ class Environment(BaseEnvironment):
     def step(self) -> Tuple[int, Union[int, None]]:
         return super().step()
 
-    def run(self, *args, **kwargs) -> None:
+    def run(self, interval: int = None, *args, **kwargs) -> None:
+        start_step = self.current_step()
         next_step = self.next_step()
-        while next_step is not None:
+        while next_step is not None \
+                and (
+                    interval is None
+                    or next_step - start_step <= interval
+                ):
             _, next_step = self.step(*args, **kwargs)
 
 
@@ -97,21 +106,40 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
     def step(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
         return super().step(*args, **kwargs)
 
-    def run(self, sync: bool = True, *args, **kwargs) -> None:
-        next_datetime = self.next_datetime()
-        while next_datetime is not None:
+    def run(
+            self,
+            interval: _STEP_TYPE = None,
+            sync: bool = True,
+            *args,
+            **kwargs
+        ) -> None:
+        if interval is not None:
+            interval = cast_interval(interval, timedelta)
+
+        start_step = self.current_step()
+        next_step = self.next_step()
+        while next_step is not None \
+                and (
+                    interval is None
+                    or next_step - start_step <= interval
+                ):
             if sync:
-                _, next_datetime = self.step_await(*args, **kwargs)
+                _, next_step = self.step_await(*args, **kwargs)
             else:
-                _, next_datetime = self.step(*args, **kwargs)
+                _, next_step = self.step(*args, **kwargs)
 
     def step_await(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
         start_datetime = datetime.now()
         current_datetime, next_datetime = self.step(*args, **kwargs)
 
-        elapsed_seconds = (datetime.now() - start_datetime).total_seconds()
-        await_seconds = self.step_delay - elapsed_seconds
-        if await_seconds > 0:
-            time.sleep(await_seconds)
+        if next_datetime is not None:
+            elapsed_seconds = (datetime.now() - start_datetime).total_seconds()
+            await_seconds = self.step_delay - elapsed_seconds
+            if await_seconds > 0:
+                time.sleep(await_seconds)
 
         return current_datetime, next_datetime
+
+    @classmethod
+    def load(cls, path: Path) -> DatetimeEnvironment:
+        super().load(path)

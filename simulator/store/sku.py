@@ -90,6 +90,9 @@ class Product(ModelMixin, ReprMixin):
 
     @classmethod
     def get(cls, name: str) -> Product:
+        if len(cls.__products__) == 0:
+            cls.load()
+
         return cls.__products__[name]
 
     @classmethod

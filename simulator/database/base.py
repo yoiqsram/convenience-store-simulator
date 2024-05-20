@@ -29,6 +29,13 @@ class BaseModel(Model):
             database = SqliteDatabase(GlobalContext.SQLITE_DB_PATH)
 
 
+class VersionModel(BaseModel):
+    modified_datetime = DateTimeField()
+
+    class Meta:
+        table_name = 'version'
+
+
 class ModelMixin:
     __model__: Type[BaseModel]
 

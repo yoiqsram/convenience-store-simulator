@@ -109,6 +109,7 @@ class GlobalContext:
     DEBUG_DATABASE: bool = get_environment_variable('DEBUG_DATABASE', bool, False)
     DEBUG_SIMULATOR: bool = get_environment_variable('DEBUG_SIMULATOR', bool, False)
     DEBUG_STORE: bool = get_environment_variable('DEBUG_STORE', bool, False)
+    DEBUG_ORDER: bool = get_environment_variable('DEBUG_ORDER', bool, False)
 
     @classmethod
     def get(

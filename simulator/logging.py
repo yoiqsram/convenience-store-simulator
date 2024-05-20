@@ -25,3 +25,7 @@ if GlobalContext.DEBUG_SIMULATOR:
 store_logger = get_logger('store')
 if GlobalContext.DEBUG_STORE:
     store_logger.setLevel(DEBUG)
+
+order_logger = get_logger('order')
+if GlobalContext.DEBUG_ORDER:
+    order_logger.setLevel(DEBUG)

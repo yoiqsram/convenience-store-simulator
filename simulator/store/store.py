@@ -27,6 +27,7 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
             place: Place,
             initial_datetime: datetime,
             interval: float,
+            skip_step: bool = False,
             max_cashiers: int = None,
             max_employees: int = None,
             max_queue: int = 15,
@@ -35,6 +36,7 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
         super().__init__(
             initial_datetime,
             interval,
+            skip_step=skip_step,
             seed=seed
         )
 
@@ -99,8 +101,7 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
         return len([
             employee
             for employee in self._employees
-            if employee.today_shift_start_datetime is not None \
-                and employee.today_shift_end_datetime is None
+            if employee.today_shift_start_datetime is not None
         ])
 
     def get_active_employees(self) -> List[Employee]:
@@ -163,9 +164,9 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
     def is_open(self) -> bool:
         for employee in self.employees():
             if employee.status not in (
-                EmployeeStatus.OFF,
-                EmployeeStatus.OUT_OF_OFFICE
-            ):
+                    EmployeeStatus.OFF,
+                    EmployeeStatus.OUT_OF_OFFICE
+                ):
                 return True
         return False
 
@@ -183,18 +184,17 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
             pass
 
     def step(self) -> Tuple[datetime, Union[datetime, None]]:
+        previous_datetime = self.current_datetime()
         current_datetime, next_datetime = super().step()
+        current_date = current_datetime.date()
 
         # Update population daily
-        current_date = current_datetime.date()
         if self.place.last_updated_date < current_date:
             self.update_market_population(current_datetime)
             self.total_orders = 0
 
-        # Update schedule working shifts midnight before date 1st
-        current_month = date(current_datetime.year, current_datetime.month, 1)
-        next_month = date(next_datetime.year, next_datetime.month, 1)
-        if next_month > current_month:
+        # Update schedule working shifts midnight date 1st
+        if current_datetime.month != previous_datetime.month:
             self.schedule_shifts(current_date)
 
         return current_datetime, next_datetime
@@ -227,11 +227,10 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
             customer = Customer(
                 new_market_families[family_id],
                 current_datetime,
-                seed
+                self.interval,
+                seed=seed
             )
             self.add_agent(customer)
-
-        return
 
     def schedule_shifts(self, shift_month: date) -> None:
         shifts = (
@@ -281,7 +280,3 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
 
                 shift_datetime = next_shift_datetime
                 next_shift_datetime += timedelta(days=1)
-
-        store_logger.debug(
-            f'STORE SHIFTS: {[( employee_id, shift.name ) for employee_id, shift in self.employee_shift_schedules.items()]}.'
-        )

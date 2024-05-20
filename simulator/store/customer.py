@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from collections import OrderedDict
 from datetime import date, datetime, timedelta
 from typing import Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
 
@@ -57,33 +58,21 @@ class Customer(Agent, DatetimeStepMixin):
         self.parent: Store
         self.family = family
 
-        self.product_need_days_left: Dict[str, int] = {
-            product.name: self._rng.randint(0, product.interval_days_need)
+        self.product_need_days_left: OrderedDict[Product, int] = OrderedDict([
+            (
+                product,
+                int(self._rng.randint(0, product.interval_days_need))
+            )
             for product in Product.all()
-        }
+        ])
         self.payment_method_prob, self.payment_method_time = random_payment_method_config(self._rng)
 
         self.current_order: Union[Order, None] = None
-
-        self._last_updated_date: date = initial_datetime.date()
+        self._last_product_need_updated_date: date = initial_datetime.date()
 
     @property
     def n_members(self) -> int:
         return self.family.n_members
-
-    def update(self, current_date: date) -> None:
-        if self._last_updated_date is not None:
-            days_to_go = (current_date - self._last_updated_date).days
-            if days_to_go < 1:
-                return
-
-            for product_name, days_left in self.product_need_days_left.copy().items():
-                self.product_need_days_left[product_name] = max(0, days_left - days_to_go)
-
-            self._last_updated_date = current_date
-
-        if self._next_step is None:
-            self._next_step = self.calculate_next_order_datetime(current_date)
 
     def step(self) -> Tuple[datetime, Union[datetime, None]]:
         current_datetime, next_datetime = super().step()
@@ -99,13 +88,19 @@ class Customer(Agent, DatetimeStepMixin):
                 return current_datetime, self._next_step
 
             # Randomize buyer representative and get the family needs
-            buyer = self.random_buyer(current_date)
+            buyer = self.random_buyer()
             payment_method = self.random_payment_method()
             needed_products = self.get_needed_products()
-            for product in needed_products:
-                self.product_need_days_left[product.name] = self._rng.poisson(
-                    product.interval_days_need
-                )
+
+            # Update product needs
+            for product in self.product_need_days_left.keys():
+                if product in needed_products:
+                    self.product_need_days_left[product] = self._rng.poisson(
+                        product.interval_days_need
+                    )
+                elif self._last_product_need_updated_date:
+                    self.product_need_days_left[product] =- (current_date - self._last_product_need_updated_date).days
+            self._last_product_need_updated_date = current_date
 
             # Calculate conversion from needs to purchase from the store, then order
             order_products = self.get_order_products(needed_products, buyer, current_date)
@@ -152,13 +147,9 @@ class Customer(Agent, DatetimeStepMixin):
         return current_datetime, next_datetime
 
     def calculate_next_order_datetime(self, current_date: date) -> datetime:
-        n = 1 + int(self._rng.poisson(7))
-        most_needed_products = sorted(self.product_need_days_left.values())[:n]
-        max_need_days_left = int(max(most_needed_products))
-
         order_datetime = (
             datetime(current_date.year, current_date.month, current_date.day)
-            + timedelta(days=max_need_days_left)
+            + timedelta(days=int(self._rng.poisson(7)))
         )
         if self._rng.random() < 0.2:
             order_datetime += timedelta(
@@ -180,7 +171,7 @@ class Customer(Agent, DatetimeStepMixin):
 
         return order_datetime
 
-    def random_buyer(self, current_date: date) -> Person:
+    def random_buyer(self) -> Person:
         family_weight = {
             FamilyStatus.SINGLE: 1,
             FamilyStatus.PARENT: 8,
@@ -205,11 +196,10 @@ class Customer(Agent, DatetimeStepMixin):
         )
 
     def get_needed_products(self) -> List[Product]:
-        days_to_go = self._rng.poisson(7)
         return [
-            Product.get(product_name)
-            for product_name, days_left in self.product_need_days_left.items()
-            if days_left <= days_to_go
+            product
+            for product, days_left in self.product_need_days_left.items()
+            if days_left <= 0
         ]
 
     def get_order_products(

@@ -5,11 +5,11 @@ import time
 from datetime import datetime, timedelta
 from typing import Iterable, Tuple, Union
 
-from ._base import RandomGeneratorMixin, ReprMixin, StepMixin, DatetimeStepMixin, _STEP_TYPE, _INTERVAL_TYPE
-from .agent import Agent, MultiAgentMixin
+from ._base import RandomGeneratorMixin, ReprMixin, DatetimeStepMixin, _STEP_TYPE, _INTERVAL_TYPE
+from .agent import Agent, MultiAgentStepMixin
 
 
-class BaseEnvironment(StepMixin, MultiAgentMixin, RandomGeneratorMixin, ReprMixin, metaclass=abc.ABCMeta):
+class BaseEnvironment(MultiAgentStepMixin, RandomGeneratorMixin, ReprMixin, metaclass=abc.ABCMeta):
     __repr_attrs__ = ( 'n_agents', 'current_step' )
 
     def __init__(
@@ -23,18 +23,6 @@ class BaseEnvironment(StepMixin, MultiAgentMixin, RandomGeneratorMixin, ReprMixi
         super().__init_step__(initial_step, interval, max_step)
         super().__init_agents__(agents)
         super().__init_rng__(seed)
-
-    def step(self) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
-        self._current_step = self._next_step
-
-        for agent in self._agents:
-            next_step = agent._next_step
-            if next_step is not None \
-                    and next_step <= self._current_step:
-                agent.step()
-
-        self._next_step = self.get_next_step()
-        return self._current_step, self._next_step
 
     @abc.abstractmethod
     def run(self, *args, **kwargs) -> None: ...
@@ -60,10 +48,10 @@ class Environment(BaseEnvironment):
     def step(self) -> Tuple[int, Union[int, None]]:
         return super().step()
 
-    def run(self) -> None:
+    def run(self, *args, **kwargs) -> None:
         next_step = self.next_step()
         while next_step is not None:
-            _, next_step = self.step()
+            _, next_step = self.step(*args, **kwargs)
 
 
 class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
@@ -72,9 +60,10 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
     def __init__(
             self,
             initial_datetime: datetime,
-            interval: float,
             speed: float,
+            interval: float,
             max_datetime: datetime = None,
+            skip_step: bool = False,
             agents: Iterable[Agent] = None,
             seed: int = None
         ) -> None:
@@ -86,12 +75,18 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
             seed=seed
         )
         self.speed = speed
+        self.skip_step = skip_step
 
         self._real_init_datetime = datetime.now()
 
     @property
-    def step_delay(self) -> int:
-        return self._interval.total_seconds() / self.speed
+    def step_delay(self) -> float:
+        next_step = self.next_step()
+        if next_step is None:
+            return
+
+        interval = (next_step - self.current_step()) if self.skip_step else self._interval
+        return interval.total_seconds() / self.speed
 
     def total_time_elapsed(self) -> timedelta:
         return self._calculate_interval(self._initial_step, self._current_step)
@@ -99,17 +94,20 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
     def total_real_time_elapsed(self) -> timedelta:
         return datetime.now() - self._real_init_datetime
 
-    def step(self) -> Tuple[datetime, Union[datetime, None]]:
-        return super().step()
+    def step(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
+        return super().step(*args, **kwargs)
 
-    def run(self):
+    def run(self, sync: bool = True, *args, **kwargs) -> None:
         next_datetime = self.next_datetime()
         while next_datetime is not None:
-            _, next_datetime = self.step_await()
+            if sync:
+                _, next_datetime = self.step_await(*args, **kwargs)
+            else:
+                _, next_datetime = self.step(*args, **kwargs)
 
-    def step_await(self) -> Tuple[datetime, Union[datetime, None]]:
+    def step_await(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
         start_datetime = datetime.now()
-        current_datetime, next_datetime = self.step()
+        current_datetime, next_datetime = self.step(*args, **kwargs)
 
         elapsed_seconds = (datetime.now() - start_datetime).total_seconds()
         await_seconds = self.step_delay - elapsed_seconds

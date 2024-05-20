@@ -18,6 +18,7 @@ class Simulator(DatetimeEnvironment):
             interval: float = None,
             speed: float = None,
             max_datetime: datetime = None,
+            skip_step: bool = False,
             initial_stores: int = None,
             initial_store_population: int = None,
             store_growth_rate: float = None,
@@ -35,6 +36,7 @@ class Simulator(DatetimeEnvironment):
             interval=interval if interval is not None else GlobalContext.CLOCK_INTERVAL,
             speed=speed if speed is not None else GlobalContext.CLOCK_SPEED,
             max_datetime=max_datetime,
+            skip_step=skip_step,
             seed=seed
         )
 
@@ -69,7 +71,7 @@ class Simulator(DatetimeEnvironment):
     def generate_stores(
             self,
             n: int,
-            store_population,
+            market_population_expected: int,
             current_datetime: datetime
         ) -> List[Store]:
         seeds = [ int(num) for num in (self._rng.random(n) * 1_000_000) ]
@@ -84,7 +86,7 @@ class Simulator(DatetimeEnvironment):
                 Place.generate(
                     n,
                     current_datetime.date(),
-                    initial_population=store_population,
+                    initial_population=market_population_expected,
                     rng=self._rng
                 ),
                 seeds
@@ -93,25 +95,24 @@ class Simulator(DatetimeEnvironment):
         return stores
 
     def step(self):
+        past_datetime = self.current_datetime()
         current_datetime, next_datetime = super().step()
 
-        if current_datetime.hour == 0 \
-                and current_datetime.minute == 0 \
-                and current_datetime.second == 0:
+        if current_datetime.month != past_datetime.month:
             simulator_logger.info(repr(self))
             for i, store in enumerate(self.stores(), 1):
                 store_logger.info(f'  #{i} {store.place_name}. Total market population: {store.total_market_population()}.')
 
-        if current_datetime.hour != 0 \
-                and current_datetime.second == 0 \
-                and current_datetime.minute == 0:
-            simulator_logger.debug(repr(self))
+        if current_datetime.hour != past_datetime.hour:
+            simulator_logger.debug(
+                f'{repr(self)}. Total orders: {sum([store.total_orders for store in self.stores()])}. '
+                f'Time elapsed: {self.total_real_time_elapsed().total_seconds():.2f}s.'
+            )
             for i, store in enumerate(self.stores(), 1):
                 store_logger.debug(
-                    f'  #{i} {store}'
-                    f'. Active employees: {", ".join([f"{employee.name}[{employee.record_id}][{employee.shift.name}]" for employee in store.get_active_employees()])}'
-                    f'. Total orders: {store.total_orders}'
-                    f'. Time elapsed: {self.total_real_time_elapsed().total_seconds():.2f}s.'
+                    f'  #{i} {store}. '
+                    f'Active employees: {", ".join([f"{employee.name}[{employee.record_id}][{employee.shift.name}]" for employee in store.get_active_employees()])}. '
+                    f'Total orders: {store.total_orders}.'
                 )
 
         return current_datetime, next_datetime

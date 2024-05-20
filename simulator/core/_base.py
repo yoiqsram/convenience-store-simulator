@@ -16,7 +16,7 @@ class IdentityMixin:
 
 
 class RandomGeneratorMixin:
-    def __init_rng__(self, seed: int = None):
+    def __init_rng__(self, seed: int = None) -> None:
         from numpy.random import RandomState
 
         self._rng = RandomState(seed)
@@ -62,12 +62,13 @@ class StepMixin:
             interval: _INTERVAL_TYPE,
             max_step: _STEP_TYPE = None
         ) -> None:
+        self._step_count = 0
         self._initial_step = initial_step
         self._max_step = max_step
         self._interval = interval
 
         self._current_step = self._initial_step
-        self._next_step = self._initial_step + self._interval
+        self._next_step: _STEP_TYPE = self._initial_step + self._interval
 
     def _calculate_interval(
             self,
@@ -87,16 +88,8 @@ class StepMixin:
         else:
             raise ValueError(f"Faild to calculate interval between {repr(a_step)} and {repr(b_step)}.")
 
-    def _count_steps(
-            self,
-            a_step: _STEP_TYPE,
-            b_step: _STEP_TYPE
-        ) -> int:
-        interval = self._calculate_interval(a_step, b_step)
-        return int(interval)
-
     @property
-    def interval(self) -> Any:
+    def interval(self) -> _INTERVAL_TYPE:
         return self._interval
 
     @interval.setter
@@ -112,13 +105,8 @@ class StepMixin:
         return self._max_step
 
     @property
-    def max_steps(self) -> Union[int, None]:
-        if self._max_step is not None:
-            return self._count_steps(self._initial_step, self._max_step)
-
-    @property
     def steps(self) -> int:
-        return self._count_steps(self._initial_step, self._current_step)
+        return self._step_count
 
     def current_step(self) -> _STEP_TYPE:
         return self._current_step
@@ -127,20 +115,32 @@ class StepMixin:
         return self._next_step
 
     def step(self, *args, **kwargs) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
-        self._current_step = self._next_step
-        if self._current_step is None:
+        self._step_count += 1
+        current_step = self.next_step()
+        if current_step is None:
             raise StopIteration()
 
-        self._next_step = self.get_next_step(*args, **kwargs)
-        return self._current_step, self._next_step
+        next_step = self.get_next_step(current_step)
+        if next_step <= current_step:
+            raise ValueError(
+                'Next step should be higher than current step. '
+                f"Please check the 'get_next_step' method in {repr(self.__class__.__name__)} class. "
+                f"Next step is {repr(next_step)} and current step is {repr(current_step)}."
+            )
 
-    def get_next_step(self, *args, **kwargs) -> Union[_STEP_TYPE, None]:
-        next_step = self._current_step + self._interval
+        self._current_step = current_step
+        self._next_step = next_step
+        return self._current_step, next_step
+
+    def get_next_step(self, current_step: _STEP_TYPE) -> Union[_STEP_TYPE, None]:
+        next_step = current_step + self._interval
+
         if self._max_step is not None \
                 and next_step > self._max_step:
             return
 
         return next_step
+
 
 class IntegerStepMixin(StepMixin):
     def __init_step__(
@@ -172,8 +172,8 @@ class IntegerStepMixin(StepMixin):
     def step(self, *args, **kwargs) -> Tuple[int, Union[int, None]]:
         return super().step(*args, **kwargs)
 
-    def get_next_step(self, *args, **kwargs) -> Union[int, None]:
-        return super().get_next_step(*args, **kwargs)
+    def get_next_step(self, current_step: int) -> Union[int, None]:
+        return super().get_next_step(current_step)
 
 
 class FloatStepMixin(StepMixin):
@@ -206,8 +206,8 @@ class FloatStepMixin(StepMixin):
     def step(self, *args, **kwargs) -> Tuple[float, Union[float, None]]:
         return super().step(*args, **kwargs)
 
-    def get_next_step(self, *args, **kwargs) -> Union[float, None]:
-        return super().get_next_step(*args, **kwargs)
+    def get_next_step(self, current_step: float) -> Union[float, None]:
+        return super().get_next_step(current_step)
 
 
 class DatetimeStepMixin(StepMixin):
@@ -228,24 +228,28 @@ class DatetimeStepMixin(StepMixin):
         return super().initial_step
 
     @property
+    def initial_datetime(self) -> Union[datetime, None]:
+        return self.initial_datetime
+
+    @property
     def max_step(self) -> Union[datetime, None]:
         return super().max_step
 
     @property
     def max_datetime(self) -> Union[datetime, None]:
-        return super().max_step
+        return self.max_step
 
     @property
     def max_date(self) -> Union[date, None]:
-        max_steps = super().max_step
-        if isinstance(max_steps, datetime):
-            return max_steps.date()
+        max_step = super().max_step
+        if isinstance(max_step, datetime):
+            return max_step.date()
 
     def current_step(self) -> datetime:
         return super().current_step()
 
     def current_datetime(self) -> datetime:
-        return super().current_step()
+        return self.current_step()
 
     def current_date(self) -> date:
         return super().current_step().date()
@@ -254,15 +258,15 @@ class DatetimeStepMixin(StepMixin):
         return super().next_step()
 
     def next_datetime(self) -> Union[datetime, None]:
-        return super().next_step()
+        return self.next_step()
 
     def next_date(self) -> Union[date, None]:
-        next_step = super().next_step()
+        next_step = self.next_step()
         if isinstance(next_step, datetime):
             return next_step.date()
 
     def step(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
         return super().step(*args, **kwargs)
 
-    def get_next_step(self, *args, **kwargs) -> Union[datetime, None]:
-        return super().get_next_step(*args, **kwargs)
+    def get_next_step(self, current_step: datetime) -> Union[datetime, None]:
+        return super().get_next_step(current_step)

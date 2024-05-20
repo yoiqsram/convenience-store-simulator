@@ -160,8 +160,6 @@ class Place(ModelMixin, ReprMixin):
                 if family.n_members > 0
             ]
 
-        return
-
     def register_birth(self, person: Person) -> None:
         prefix_id = (
             self.id[:6]

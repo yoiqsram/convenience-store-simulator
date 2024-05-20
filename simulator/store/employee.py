@@ -73,16 +73,23 @@ class Employee(Agent, ModelMixin):
 
         # Schedule next day shift on the midnight
         if self.schedule_shift_start_datetime is None:
+            self.today_shift_start_datetime = None
+            self.today_shift_end_datetime = None
+
             self.schedule_shift_attendance(
                 self.parent.employee_shift_schedules[self.record_id],
                 current_datetime.date()
             )
-            return current_datetime, next_datetime
+            self._next_step = self.schedule_shift_start_datetime
+            return current_datetime, self._next_step
 
         # Begin shift
         elif self.status == EmployeeStatus.OFF \
                 and self.today_shift_start_datetime is None \
                 and self.schedule_shift_start_datetime <= current_datetime:
+            if current_datetime.hour == 0:
+                raise
+
             store_logger.debug(
                 f'{current_datetime.isoformat()}'
                 f' - STORE {self.parent.place_name}'
@@ -109,13 +116,14 @@ class Employee(Agent, ModelMixin):
                 f'- {self.name}[{self.record_id}].'
             )
             self.complete_shift(current_datetime)
+
             self._next_step = (
                 datetime(
                     current_datetime.year,
                     current_datetime.month,
                     current_datetime.day
                 )
-                + timedelta(days=1)
+                + timedelta(days=1, hours=6) # Wake up time
             )
             return current_datetime, self._next_step
 
@@ -185,6 +193,8 @@ class Employee(Agent, ModelMixin):
         )
         self.schedule_shift_end_datetime = shift_start_datetime + self.parent.long_shift_hours
 
+        return None
+
     def begin_shift(self, curent_datetime: datetime) -> None:
         EmployeeAttendanceModel.create(
             employee=self.record.id,
@@ -201,7 +211,6 @@ class Employee(Agent, ModelMixin):
             created_datetime=current_datetime
         )
         self.parent.dismiss_cashier(self)
-        self.shift = EmployeeShift.NONE
         self.status = EmployeeStatus.OFF
         self.today_shift_end_datetime = current_datetime
         self.schedule_shift_start_datetime = None

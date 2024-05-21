@@ -1,11 +1,10 @@
 import argparse
-from typing import Callable, Dict
 
-from .init import add_init_parser
+from .init import add_init_parser, init_simulator
 from .run import add_run_parser
 
 
-def parse_args() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(
         dest='command',
@@ -13,10 +12,7 @@ def parse_args() -> None:
         help='Command to run.'
     )
 
-    command_runners: Dict[str, Callable] = {
-        'init': add_init_parser(subparsers),
-        'run': add_run_parser(subparsers)
-    }
+    add_init_parser(subparsers)
+    add_run_parser(subparsers)
 
-    args, _ = parser.parse_known_args()
-    return args, command_runners
+    return parser.parse_args()

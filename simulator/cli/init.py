@@ -1,12 +1,11 @@
 import argparse
-import dill
-from typing import Callable, Union
+from typing import Union
 
 from ..context import GlobalContext
 from ..simulator import Simulator
 
 
-def add_init_parser(subparsers) -> Callable[[argparse.Namespace], None]:
+def add_init_parser(subparsers) -> None:
     parser: argparse.ArgumentParser = subparsers.add_parser(
         'init',
         help='Initialize simulator session for the first time.',
@@ -22,13 +21,12 @@ def add_init_parser(subparsers) -> Callable[[argparse.Namespace], None]:
         action='store_true',
         help='Rewrite session if exists.'
     )
-    return init_simulator
 
 
-def init_simulator(args: argparse.Namespace) -> Simulator:
-    seed: Union[int, None] = args.seed
-    rewrite: bool = args.rewrite
-
+def init_simulator(
+        seed: Union[int, None],
+        rewrite: bool
+    ) -> Simulator:
     if not rewrite and GlobalContext.CHECKPOINT_SESSION_PATH.exists():
         raise FileExistsError()
 

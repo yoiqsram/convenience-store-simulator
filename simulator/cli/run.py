@@ -1,12 +1,9 @@
 import argparse
-import dill
-from typing import Callable
 
-from ..context import GlobalContext
 from ..simulator import Simulator
 
 
-def add_run_parser(subparsers) -> Callable[[argparse.Namespace], None]:
+def add_run_parser(subparsers) -> None:
     parser: argparse.ArgumentParser = subparsers.add_parser(
         'run',
         help='Run simulator from the saved session.',
@@ -23,9 +20,3 @@ def add_run_parser(subparsers) -> Callable[[argparse.Namespace], None]:
         action='store_true',
         help='Keep old checkpoint save.'
     )
-    return run
-
-
-def run(args: argparse.Namespace, simulator: Simulator) -> None:
-    interval: int = args.checkpoint
-    simulator.run(interval=interval)

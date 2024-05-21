@@ -1,6 +1,6 @@
 import argparse
 
-from ..simulator import Simulator
+from ..context import GlobalContext
 
 
 def add_run_parser(subparsers) -> None:
@@ -12,7 +12,7 @@ def add_run_parser(subparsers) -> None:
     parser.add_argument(
         '--checkpoint', '-C',
         type=int,
-        default=86400,
+        default=GlobalContext.CHECKPOINT_INTERVAL,
         help='Checkpoint save interval in seconds. Default: 86400 (daily).'
     )
     parser.add_argument(

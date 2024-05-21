@@ -1,0 +1,83 @@
+x-convenience-store-simulator:
+  &common
+  image: simulator/convenience-store:0.1
+  build:
+    dockerfile: dockerfile
+  environment:
+    &common-env
+    POSTGRES_DB_HOST: postgres
+    POSTGRES_DB_PORT: 5432
+    POSTGRES_DB_NAME: store
+    POSTGRES_DB_USERNAME: store
+    POSTGRES_DB_PASSWORD: store
+  env_file:
+    - simulator.env
+  networks:
+    - backend
+  volumes:
+    - simulator-data:/app/data
+  depends_on:
+    &common-depends-on
+    postgres:
+      condition: service_healthy
+services:
+  postgres:
+    image: postgres:alpine3.19
+    environment:
+      POSTGRES_USER: store
+      POSTGRES_PASSWORD: store
+      POSTGRES_DB: store
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready", "-d", "store", "-U", "store" ]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+  simulator:
+    <<: *common
+    command: run
+    restart: always
+    depends_on:
+      <<: *common-depends-on
+      init:
+        condition: service_completed_successfully
+  init:
+    <<: *common
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        if [ -e "/app/data/checkpoint.pkl" ]; then
+          echo "Simulator has exists."
+          exit 0
+        fi
+
+        echo "Initializing simulator..."
+        if [ -z "$${SEED}" ]; then
+          python -m simulator init
+        else
+          python -m simulator init --seed $${SEED}
+        fi
+
+        if [ $? -eq 0 ]; then
+          echo "Succefully initialize simulator."
+        else
+          echo "An error was occured during the initialization."
+          exit 1
+        fi
+    environment:
+      <<: *common-env
+      SEED: ${SEED}
+
+networks:
+  backend:
+    name: convenience-store-simulator-network
+    driver: bridge
+
+volumes:
+  postgres-db:
+  simulator-data:

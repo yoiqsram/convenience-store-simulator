@@ -57,9 +57,13 @@ if __name__ == '__main__':
         )
 
     elif command == 'run':
+        simulator_logger.info('Loading last checkpoint...')
         load_session(GlobalContext.CHECKPOINT_SESSION_PATH)
 
         simulator: Simulator = globals()['simulator']
+        simulator_logger.info('Continue run simulator from previous checkpoint. ')
+        simulator_logger.info(f'Last simulated time: {simulator.current_datetime()}.')
+
         simulator.speed = GlobalContext.CLOCK_SPEED
         while simulator.next_step() is not None:
             simulator.run(interval=args.checkpoint)

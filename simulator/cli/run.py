@@ -19,6 +19,11 @@ def add_run_parser(subparsers) -> None:
         help='Skip agent step when idle to reduce computation.'
     )
     parser.add_argument(
+        '--no-sync',
+        action='store_false',
+        help='Run iteratively without simulating (scaled) time interval.'
+    )
+    parser.add_argument(
         '--checkpoint', '-C',
         type=int,
         default=GlobalContext.CHECKPOINT_INTERVAL,

@@ -88,7 +88,7 @@ if __name__ == '__main__':
         simulator_logger.info('Continue run simulator from previous checkpoint. ')
         simulator_logger.info(f'Last simulation time: {current_datetime}.')
         while simulator.next_step() is not None:
-            simulator.run(interval=interval, skip_step=args.skip_step)
+            simulator.run(interval=interval, skip_step=args.skip_step, sync=args.no_sync)
 
             simulator_logger.info(f"Dumping simulator checkpoint at '{simulator.current_datetime()}' simulation time.")
             dump_session(

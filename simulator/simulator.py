@@ -163,7 +163,7 @@ class Simulator(DatetimeEnvironment):
                     f"Store #{str(i).rjust(len(str(n_stores)), '0')}",
                     store.place_name,
                     '-', 'OPEN' if store.is_open() else 'CLOSE',
-                    f'| Today cumulative orders: {store.total_orders}',
+                    f'| Today cumulative orders: {store.total_orders}.',
                     dt=current_datetime
                 ))
 

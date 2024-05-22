@@ -125,7 +125,7 @@ class MultiAgentStepMixin(StepMixin):
     def step(self, *args, **kwargs) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
         self._rc = True
 
-        next_step = self.next_step()
+        _, next_step = super().step(*args, **kwargs)
         if next_step is not None:
             for agent in self.agents():
                 agent_next_step = agent.next_step()

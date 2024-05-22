@@ -1,10 +1,11 @@
-from datetime import datetime
+import numpy as np
+from datetime import datetime, timedelta
 from typing import Iterable, List
 
 from .core import DatetimeEnvironment
-from .context import GlobalContext
-from .database import Database, BaseModel, VersionModel, create_database
-from .logging import simulator_logger, store_logger
+from .context import GlobalContext, DAYS_IN_YEAR
+from .database import Database, BaseModel, create_database
+from .logging import simulator_logger, simulator_log_format
 from .population import Place
 from .store import Store
 
@@ -33,33 +34,39 @@ class Simulator(DatetimeEnvironment):
 
         super().__init__(
             initial_datetime,
-            interval=interval if interval is not None else GlobalContext.CLOCK_INTERVAL,
-            speed=speed if speed is not None else GlobalContext.CLOCK_SPEED,
+            interval=interval if interval is not None else GlobalContext.SIMULATOR_INTERVAL,
+            speed=speed if speed is not None else GlobalContext.SIMULATOR_SPEED,
             max_datetime=max_datetime,
             skip_step=skip_step,
             seed=seed
         )
 
+        self.store_growth_rate = store_growth_rate if store_growth_rate is not None else GlobalContext.STORE_GROWTH_RATE
+
         # Create simulator database if not available
-        try:
-            if VersionModel.select().count() == 0:
-                raise
-        except:
+        database: Database = BaseModel._meta.database
+        if database.table_exists('version'):
+            simulator_logger.info('Database is already exists.')
+        else:
+            _time = datetime.now()
+            simulator_logger.info(f"Preparing {database.__class__.__name__.split('Database')[0]} database for the simulator...")
             create_database(initial_datetime)
+            simulator_logger.info(f'Simulator database is ready. {(datetime.now() - _time).total_seconds():.1f}s')
 
         # Generate stores
+        _time = datetime.now()
+        simulator_logger.info('Generating stores...')
         for store in self.generate_stores(
                 initial_stores if initial_stores is not None else GlobalContext.INITIAL_STORES,
-                initial_store_population if initial_store_population is not None else GlobalContext.STORE_POPULATION,
-                self.current_datetime()
+                initial_store_population if initial_store_population is not None else GlobalContext.STORE_MARKET_POPULATION,
+                self.current_datetime(),
+                GlobalContext.INITIAL_STORES_RANGE_DAYS
             ):
             self.add_agent(store)
+            simulator_logger.debug(f"New store '{store.place_name}' with market population size {store.total_market_population()} has been added. It will be built on '{store.initial_date}'.")
+        simulator_logger.info(f'Generated {self.n_stores} stores. {(datetime.now() - _time).total_seconds():.1f}s')
 
-        simulator_logger.info(repr(self))
-        for i, store in enumerate(self.stores(), 1):
-            store_logger.info(f'  #{i} {store.place_name}. Total market population: {store.total_market_population()}.')
-
-        self.store_growth_rate = store_growth_rate if store_growth_rate is not None else GlobalContext.STORE_GROWTH_RATE
+        simulator_logger.info(f'Simulator has been created. Total market population: {self.total_market_population()}.')
 
     @property
     def n_stores(self) -> int:
@@ -75,47 +82,89 @@ class Simulator(DatetimeEnvironment):
             self,
             n: int,
             market_population_expected: int,
-            current_datetime: datetime
+            initial_datetime: datetime,
+            range_days: int = 0
         ) -> List[Store]:
         seeds = [ int(num) for num in (self._rng.random(n) * 1_000_000) ]
-        stores = [
-            Store(
-                place,
-                current_datetime,
-                self.interval,
-                seed=seed
-            )
-            for place, seed in zip(
+        stores = []
+        for place, seed, delay_days in zip(
                 Place.generate(
                     n,
-                    current_datetime.date(),
+                    initial_datetime.date(),
                     initial_population=market_population_expected,
                     rng=self._rng
                 ),
-                seeds
+                seeds,
+                self._rng.choice(range_days + 1, n)
+            ):
+            initial_datetime_ = (
+                datetime(initial_datetime.year, initial_datetime.month, initial_datetime.day)
+                + timedelta(days=int(delay_days))
             )
-        ]
+            stores.append(Store(
+                place,
+                initial_datetime_,
+                self.interval,
+                seed=seed
+            ))
         return stores
 
     def step(self):
         past_datetime = self.current_datetime()
         current_datetime, next_datetime = super().step()
 
-        if current_datetime.month != past_datetime.month:
-            simulator_logger.info(repr(self))
-            for i, store in enumerate(self.stores(), 1):
-                store_logger.info(f'  #{i} {store.place_name}. Total market population: {store.total_market_population()}.')
+        n_stores = self.n_stores
+        n_active_stores = len([ store for store in self.stores() if store.initial_datetime <= current_datetime ])
 
-        if current_datetime.hour != past_datetime.hour:
-            simulator_logger.debug(
-                f'{repr(self)}. Total orders: {sum([store.total_orders for store in self.stores()])}. '
-                f'Time elapsed: {self.total_real_time_elapsed().total_seconds():.2f}s.'
-            )
+        # Daily update possibility of store growth
+        if current_datetime.day != past_datetime.day:
+            for random in self._rng.random(n_stores):
+                if random > (1 - np.power(1 + self.store_growth_rate, 1 / DAYS_IN_YEAR)):
+                    continue
+
+                try:
+                    new_store = self.generate_stores(1, GlobalContext.STORE_MARKET_POPULATION, current_datetime)[0]
+                    self.add_agent(new_store)
+                    simulator_logger.info(simulator_log_format(
+                        f"New store '{store.place_name}' has been built with market population size {new_store.total_market_population()}.",
+                        dt=current_datetime
+                    ))
+
+                # Possible error when a store has been exists in the same place
+                except:
+                    simulator_logger.error(f'Failed to build new store.', exc_info=True)
+
+        # Log market population size monthly
+        if current_datetime.month != past_datetime.month:
+            simulator_logger.info(simulator_log_format(
+                f'Total active stores: {n_active_stores}/{n_stores}.',
+                f'Total market population: {self.total_market_population()}.',
+                dt=current_datetime
+            ))
             for i, store in enumerate(self.stores(), 1):
-                store_logger.debug(
-                    f'  #{i} {store}. '
-                    f'Active employees: {", ".join([f"{employee.name}[{employee.record_id}][{employee.shift.name}]" for employee in store.get_active_employees()])}. '
-                    f'Total orders: {store.total_orders}.'
-                )
+                simulator_logger.info(simulator_log_format(
+                    f"Store #{str(i).rjust(len(str(n_stores)), '0')} {store.place_name} | Total market population: {store.total_market_population()}",
+                    dt=current_datetime
+                ))
+
+        # Log today orders hourly
+        if current_datetime.hour != past_datetime.hour:
+            simulator_logger.info(simulator_log_format(
+                f'Total active stores: {n_active_stores}/{n_stores}.',
+                f'Today cumulative orders: {sum([ store.total_orders for store in self.stores() ])}.',
+                dt=current_datetime
+            ))
+
+            for i, store in enumerate(self.stores(), 1):
+                if store.initial_datetime > current_datetime:
+                    continue
+
+                simulator_logger.info(simulator_log_format(
+                    f"Store #{str(i).rjust(len(str(n_stores)), '0')}",
+                    store.place_name,
+                    '-', 'OPEN' if store.is_open() else 'CLOSE',
+                    f'| Today cumulative orders: {store.total_orders}',
+                    dt=current_datetime
+                ))
 
         return current_datetime, next_datetime

@@ -1,49 +1,12 @@
 import os
 import yaml
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any, List, Union
 
-_STR_NONE = Union[str, None]
+from .utils import get_dict_value
 
 DAYS_IN_YEAR = 365.2425
-
-
-def get_dict_value(
-        d: dict,
-        name: str,
-        type: type = None,
-        default: Any = None,
-        none_error: bool = False
-    ) -> Any:
-    if default is not None \
-            and type is not None \
-            and not isinstance(default, type):
-        raise ValueError(f"Argument 'default' should have been '{type.__class__.__name__}' as type, not '{default.__class__.__name__}'.")
-
-    env_var = d.get(name, default)
-    cast = type
-    if type is None:
-        pass
-    elif isinstance(env_var, type):
-        return env_var
-    elif isinstance(type, bool):
-        cast = lambda val: val.lower() == 'true'
-    elif isinstance(type, date):
-        cast = date.fromisoformat
-    elif isinstance(type, datetime):
-        cast = date.fromisoformat
-
-    if default is not None \
-            and none_error \
-            and env_var is None:
-        raise ValueError(f"Environment variable '{name}' is not exists.")
-    elif env_var is None:
-        return env_var
-
-    if type is None:
-        return env_var
-    return cast(env_var)
 
 
 def get_environment_variable(
@@ -57,6 +20,7 @@ def get_environment_variable(
         name=name,
         type=type,
         default=default,
+        none_values=[ '' ],
         none_error=none_error
     )
 
@@ -69,19 +33,18 @@ class GlobalContext:
     SQLITE_DB_PATH: Path = get_environment_variable('SQLITE_DB_PATH', Path, DATA_DIR / 'stores.db')
 
     POSTGRES_DB_NAME: str = get_environment_variable('POSTGRES_DB_NAME', default='store')
-    POSTGRES_DB_USERNAME: _STR_NONE = get_environment_variable('POSTGRES_DB_USERNAME')
-    POSTGRES_DB_PASSWORD: _STR_NONE = get_environment_variable('POSTGRES_DB_PASSWORD')
-    POSTGRES_DB_HOST: _STR_NONE = get_environment_variable('POSTGRES_DB_HOST')
-    POSTGRES_DB_PORT: _STR_NONE = get_environment_variable('POSTGRES_DB_PORT')
+    POSTGRES_DB_USERNAME: Union[str, None] = get_environment_variable('POSTGRES_DB_USERNAME')
+    POSTGRES_DB_PASSWORD: Union[str, None] = get_environment_variable('POSTGRES_DB_PASSWORD')
+    POSTGRES_DB_HOST: Union[str, None] = get_environment_variable('POSTGRES_DB_HOST')
+    POSTGRES_DB_PORT: Union[str, None] = get_environment_variable('POSTGRES_DB_PORT')
 
     CHECKPOINT_SESSION_PATH: Path = get_environment_variable('SIMULATOR_CHECKPOINT_SESSION_PATH', Path, DATA_DIR / 'checkpoint.pkl')
     CHECKPOINT_INTERVAL: int = get_environment_variable('SIMULATOR_CHECKPOINT_INTERVAL', int, 86400)
 
     INITIAL_DATE: date = get_environment_variable('SIMULATOR_INITIAL_DATE', date, date.today())
-    CLOCK_SPEED: float = get_environment_variable('SIMULATOR_SPEED', float, 1.0)
-    CLOCK_INTERVAL: float = get_environment_variable('SIMULATOR_INTERVAL', float, 1.0)
+    SIMULATOR_SPEED: float = get_environment_variable('SIMULATOR_SPEED', float, 1.0)
+    SIMULATOR_INTERVAL: float = get_environment_variable('SIMULATOR_INTERVAL', float, 1.0)
     CURRENCY_MULTIPLIER: float = get_environment_variable('SIMULATOR_CURRENCY_MULTIPLIER', float, 1.0)
-    MAX_THREADS: int = get_environment_variable('SIMULATOR_MAX_THREADS', int, 1)
 
     POPULATION_FAMILY_SIZE: float = get_environment_variable('SIMULATOR_POPULATION_FAMILY_SIZE', float, 3.0)
     POPULATION_FERTILITY_RATE: float = get_environment_variable('SIMULATOR_POPULATION_FERTILITY_RATE', float, 0.1)
@@ -95,7 +58,8 @@ class GlobalContext:
     POPULATION_FAMILY_SINGLE_PARENT_AND_MALE_PROB: float = get_environment_variable('SIMULATOR_POPULATION_FAMILY_SINGLE_AND_MALE', float, 0.4)
 
     INITIAL_STORES: int = get_environment_variable('SIMULATOR_INITIAL_STORES', int, 1)
-    STORE_POPULATION: int = get_environment_variable('SIMULATOR_STORE_POPULATION', int, 10_000)
+    INITIAL_STORES_RANGE_DAYS: int = get_environment_variable('SIMULATOR_INITIAL_STORES_RANGE_DAYS', int, 0)
+    STORE_MARKET_POPULATION: int = get_environment_variable('SIMULATOR_STORE_MARKET_POPULATION', int, 10_000)
     STORE_GROWTH_RATE: int = get_environment_variable('SIMULATOR_STORE_GROWTH_RATE', float, 0.5)
 
     STORE_MAX_CASHIERS: int = get_environment_variable('SIMULATOR_STORE_MAX_CASHIERS', int, 2)

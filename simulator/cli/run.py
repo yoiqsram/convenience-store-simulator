@@ -10,6 +10,15 @@ def add_run_parser(subparsers) -> None:
         description='Run simulator from the saved session.'
     )
     parser.add_argument(
+        '--max-datetime', '-M',
+        help='Max datetime for the run. It will not replace the simulation max datetime.'
+    )
+    parser.add_argument(
+        '--skip-step',
+        action='store_true',
+        help='Skip agent step when idle to reduce computation.'
+    )
+    parser.add_argument(
         '--checkpoint', '-C',
         type=int,
         default=GlobalContext.CHECKPOINT_INTERVAL,

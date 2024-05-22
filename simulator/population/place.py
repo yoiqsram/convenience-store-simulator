@@ -192,7 +192,7 @@ class Place(ModelMixin, ReprMixin):
 
         initial_date = initial_date if initial_date is not None else GlobalContext.INITIAL_DATE
 
-        initial_population = initial_population if initial_population is not None else GlobalContext.STORE_POPULATION
+        initial_population = initial_population if initial_population is not None else GlobalContext.STORE_MARKET_POPULATION
         initial_populations = np.clip(
             rng.normal(
                 initial_population,

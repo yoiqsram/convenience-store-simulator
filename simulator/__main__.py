@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
@@ -6,6 +7,7 @@ from .cli import parse_args, init_simulator
 from .context import GlobalContext
 from .logging import simulator_logger
 from .simulator import Simulator
+from .utils import cast
 
 
 def dump_session(
@@ -45,15 +47,30 @@ def load_session(path: Path) -> None:
 if __name__ == '__main__':
     args = parse_args()
 
+    temp_checkpoint_path = (
+        GlobalContext.CHECKPOINT_SESSION_PATH.parent
+        / (GlobalContext.CHECKPOINT_SESSION_PATH.name + '.tmp')
+    )
+
     command: str = args.command
     if command == 'init':
+        _time = datetime.now()
         simulator: Simulator = init_simulator(
             seed=args.seed,
             rewrite=args.rewrite
         )
-        dump_session(
-            GlobalContext.CHECKPOINT_SESSION_PATH,
-            { 'simulator': simulator }
+        simulator_logger.info(
+            f"Succesfully generate the simulator. "
+            f'{(datetime.now() - _time).total_seconds():.1f}s'
+        )
+
+        _time = datetime.now()
+        simulator_logger.info(f"Dumping simulator checkpoint at '{simulator.current_datetime()}' simulation time.")
+        dump_session(temp_checkpoint_path, { 'simulator': simulator })
+        os.rename(temp_checkpoint_path, GlobalContext.CHECKPOINT_SESSION_PATH)
+        simulator_logger.info(
+            f"Checkpoint saved in '{GlobalContext.CHECKPOINT_SESSION_PATH}'. "
+            f'{(datetime.now() - _time).total_seconds():.1f}s'
         )
 
     elif command == 'run':
@@ -61,17 +78,19 @@ if __name__ == '__main__':
         load_session(GlobalContext.CHECKPOINT_SESSION_PATH)
 
         simulator: Simulator = globals()['simulator']
+        simulator.interval = GlobalContext.SIMULATOR_INTERVAL
+        simulator.speed = GlobalContext.SIMULATOR_SPEED
+
+        current_datetime = simulator.current_datetime()
+        max_datetime = cast(args.max_datetime, datetime) if args.max_datetime is not None else datetime.now()
+        interval = args.checkpoint if args.checkpoint > 0 else (max_datetime - current_datetime).total_seconds()
+
         simulator_logger.info('Continue run simulator from previous checkpoint. ')
-        simulator_logger.info(f'Last simulated time: {simulator.current_datetime()}.')
-
-        simulator.speed = GlobalContext.CLOCK_SPEED
+        simulator_logger.info(f'Last simulation time: {current_datetime}.')
         while simulator.next_step() is not None:
-            simulator.run(interval=args.checkpoint)
+            simulator.run(interval=interval, skip_step=args.skip_step)
 
-            temp_checkpoint_path = (
-                GlobalContext.CHECKPOINT_SESSION_PATH.parent
-                / (GlobalContext.CHECKPOINT_SESSION_PATH.name + '.tmp')
-            )
+            simulator_logger.info(f"Dumping simulator checkpoint at '{simulator.current_datetime()}' simulation time.")
             dump_session(
                 temp_checkpoint_path,
                 { 'simulator': simulator }
@@ -89,5 +108,5 @@ if __name__ == '__main__':
             if not args.keep:
                 old_checkpoint_path.unlink()
 
-            simulator_logger.info(f"Dump new checkpoint at '{simulator.current_step()}' simulated time.")
             os.rename(temp_checkpoint_path, GlobalContext.CHECKPOINT_SESSION_PATH)
+            simulator_logger.info(f"Checkpoint saved in '{GlobalContext.CHECKPOINT_SESSION_PATH}'.")

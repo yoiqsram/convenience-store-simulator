@@ -8,7 +8,7 @@ from typing import Iterable, Tuple, Union
 
 from ._base import (
     RandomGeneratorMixin, ReprMixin, DatetimeStepMixin,
-    _STEP_TYPE, _INTERVAL_TYPE, cast_interval
+    _STEP_TYPE, _INTERVAL_TYPE, cast
 )
 from .agent import Agent, MultiAgentStepMixin
 
@@ -86,8 +86,6 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
         self.speed = speed
         self.skip_step = skip_step
 
-        self._real_init_datetime = datetime.now()
-
     @property
     def step_delay(self) -> float:
         next_step = self.next_step()
@@ -100,21 +98,23 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
     def total_time_elapsed(self) -> timedelta:
         return self._calculate_interval(self._initial_step, self._current_step)
 
-    def total_real_time_elapsed(self) -> timedelta:
-        return datetime.now() - self._real_init_datetime
-
     def step(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
         return super().step(*args, **kwargs)
 
     def run(
             self,
             interval: _STEP_TYPE = None,
+            skip_step: bool = None,
             sync: bool = True,
             *args,
             **kwargs
         ) -> None:
         if interval is not None:
-            interval = cast_interval(interval, timedelta)
+            interval = cast(interval, timedelta)
+
+        if skip_step is not None:
+            _skip_step = self.skip_step
+            self.skip_step = skip_step
 
         start_step = self.current_step()
         next_step = self.next_step()
@@ -127,6 +127,9 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
                 _, next_step = self.step_await(*args, **kwargs)
             else:
                 _, next_step = self.step(*args, **kwargs)
+
+        if skip_step is not None:
+            self.skip_step = _skip_step
 
     def step_await(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
         start_datetime = datetime.now()

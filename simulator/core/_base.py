@@ -2,6 +2,8 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Tuple, Union
 
+from ..utils import cast
+
 _STEP_TYPE = Union[int, datetime]
 _INTERVAL_TYPE = Union[int, float, timedelta]
 
@@ -44,17 +46,6 @@ class ReprMixin:
         return f"{self.__class__.__name__}({', '.join([f'{k}={v}' for k, v in kwargs.items()])})"
 
 
-def cast_interval(value: Any, interval_type: type) -> _INTERVAL_TYPE:
-    if interval_type == type(value):
-        return value
-
-    elif interval_type is timedelta \
-            and (isinstance(value, int) or isinstance(value, float)):
-        return timedelta(seconds=value)
-
-    raise TypeError(f"Failed to cast value '{value}' to interval type '{interval_type.__name__}'.")
-
-
 class StepMixin:
     def __init_step__(
             self,
@@ -94,7 +85,7 @@ class StepMixin:
 
     @interval.setter
     def interval(self, value: Any) -> None:
-        self._interval = cast_interval(value, type(self._interval))
+        self._interval = cast(value, type(self._interval))
 
     @property
     def initial_step(self) -> _STEP_TYPE:
@@ -103,6 +94,10 @@ class StepMixin:
     @property
     def max_step(self) -> Union[_STEP_TYPE, None]:
         return self._max_step
+
+    @max_step.setter
+    def max_step(self, value: Union[_STEP_TYPE, None]) -> None:
+        self._max_step = cast(value, type(self._initial_step))
 
     @property
     def steps(self) -> int:
@@ -151,8 +146,8 @@ class IntegerStepMixin(StepMixin):
             max_step: int = None,
         ) -> None:
         super().__init_step__(
-            initial_step,
-            cast_interval(interval, int),
+            cast(initial_step, int),
+            cast(interval, int),
             max_step
         )
 
@@ -163,6 +158,10 @@ class IntegerStepMixin(StepMixin):
     @property
     def max_step(self) -> Union[int, None]:
         return super().max_step
+
+    @max_step.setter
+    def max_step(self, value: Union[int, None]) -> None:
+        super().max_step = value
 
     def current_step(self) -> int:
         return super().current_step()
@@ -185,8 +184,8 @@ class FloatStepMixin(StepMixin):
             max_step: float = None,
         ) -> None:
         super().__init_step__(
-            initial_step,
-            cast_interval(interval, float),
+            cast(initial_step, float),
+            cast(interval, float),
             max_step
         )
 
@@ -197,6 +196,10 @@ class FloatStepMixin(StepMixin):
     @property
     def max_step(self) -> Union[float, None]:
         return super().max_step
+
+    @max_step.setter
+    def max_step(self, value: Union[float, None]) -> None:
+        super().max_step = value
 
     def current_step(self) -> float:
         return super().current_step()
@@ -219,8 +222,8 @@ class DatetimeStepMixin(StepMixin):
             max_step: datetime = None,
         ) -> None:
         super().__init_step__(
-            initial_step,
-            cast_interval(interval, timedelta),
+            cast(initial_step, datetime),
+            cast(interval, timedelta),
             max_step
         )
 
@@ -230,21 +233,37 @@ class DatetimeStepMixin(StepMixin):
 
     @property
     def initial_datetime(self) -> Union[datetime, None]:
-        return self.initial_datetime
+        return super().initial_step
+
+    @property
+    def initial_date(self) -> Union[date, None]:
+        return super().initial_step.date()
 
     @property
     def max_step(self) -> Union[datetime, None]:
         return super().max_step
 
+    @max_step.setter
+    def max_step(self, value: Union[str, date, datetime, None]) -> None:
+        super().max_step = value
+
     @property
     def max_datetime(self) -> Union[datetime, None]:
         return self.max_step
+
+    @max_datetime.setter
+    def max_datetime(self, value: Union[datetime, None]) -> None:
+        super().max_step = value
 
     @property
     def max_date(self) -> Union[date, None]:
         max_step = super().max_step
         if isinstance(max_step, datetime):
             return max_step.date()
+
+    @max_date.setter
+    def max_date(self, value: Union[date, None]) -> None:
+        super().max_step = value
 
     def current_step(self) -> datetime:
         return super().current_step()

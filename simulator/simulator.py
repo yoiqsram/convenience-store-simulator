@@ -1,8 +1,8 @@
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 
-from .core import DatetimeEnvironment
+from .core import RandomDatetimeEnvironment
 from .context import GlobalContext, DAYS_IN_YEAR
 from .database import Database, BaseModel, create_database
 from .logging import simulator_logger, simulator_log_format
@@ -10,13 +10,13 @@ from .population import Place
 from .store import Store
 
 
-class Simulator(DatetimeEnvironment):
+class Simulator(RandomDatetimeEnvironment):
     __repr_attrs__ = ( 'n_stores', 'total_market_population', 'current_datetime' )
 
     def __init__(
             self,
             initial_datetime: datetime = None,
-            interval: float = None,
+            interval: Tuple[float, Tuple[float, float]] = None,
             speed: float = None,
             max_datetime: datetime = None,
             skip_step: bool = False,
@@ -32,9 +32,18 @@ class Simulator(DatetimeEnvironment):
                 GlobalContext.INITIAL_DATE.day
             )
 
+        if interval is None:
+            if GlobalContext.SIMULATOR_INTERVAL_MIN is None:
+                interval = GlobalContext.SIMULATOR_INTERVAL
+            else:
+                interval = (
+                    GlobalContext.SIMULATOR_INTERVAL_MIN,
+                    GlobalContext.SIMULATOR_INTERVAL_MAX
+                )
+
         super().__init__(
             initial_datetime,
-            interval=interval if interval is not None else GlobalContext.SIMULATOR_INTERVAL,
+            interval=interval,
             speed=speed if speed is not None else GlobalContext.SIMULATOR_SPEED,
             max_datetime=max_datetime,
             skip_step=skip_step,

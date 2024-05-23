@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable, Tuple, Union
 
 from ._base import (
-    RandomGeneratorMixin, ReprMixin, DatetimeStepMixin,
+    RandomGeneratorMixin, ReprMixin, DatetimeStepMixin, RandomDatetimeStepMixin,
     _STEP_TYPE, _INTERVAL_TYPE, cast
 )
 from .agent import Agent, MultiAgentStepMixin
@@ -24,9 +24,9 @@ class BaseEnvironment(MultiAgentStepMixin, RandomGeneratorMixin, ReprMixin, meta
             agents: Iterable[Agent] = None,
             seed: int = None
         ) -> None:
+        super().__init_rng__(seed)
         super().__init_step__(initial_step, interval, max_step)
         super().__init_agents__(agents)
-        super().__init_rng__(seed)
 
     @abc.abstractmethod
     def run(self, interval: _INTERVAL_TYPE = None, *args, **kwargs) -> None: ...
@@ -64,13 +64,13 @@ class Environment(BaseEnvironment):
 
 
 class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
-    __repr_attrs__ = ( 'n_agents', 'curent_datetime' )
+    __repr_attrs__ = ( 'n_agents', 'current_datetime' )
 
     def __init__(
             self,
             initial_datetime: datetime,
-            speed: float,
-            interval: float,
+            interval: _INTERVAL_TYPE,
+            speed: float = 1.0,
             max_datetime: datetime = None,
             skip_step: bool = False,
             agents: Iterable[Agent] = None,
@@ -146,3 +146,25 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
     @classmethod
     def load(cls, path: Path) -> DatetimeEnvironment:
         super().load(path)
+
+
+class RandomDatetimeEnvironment(DatetimeEnvironment, RandomDatetimeStepMixin):
+    def __init__(
+            self,
+            initial_datetime: datetime,
+            interval: Tuple[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]],
+            speed: float = 1.0,
+            max_datetime: datetime = None,
+            skip_step: bool = False,
+            agents: Iterable[Agent] = None,
+            seed: int = None
+        ) -> None:
+        super().__init__(
+            initial_datetime=initial_datetime,
+            interval=interval,
+            speed=speed,
+            max_datetime=max_datetime,
+            skip_step=skip_step,
+            agents=agents,
+            seed=seed
+        )

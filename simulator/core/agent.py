@@ -60,10 +60,21 @@ class MultiAgentStepMixin(StepMixin):
             skip_step: bool = False
         ) -> None:
         self._agents: List[Agent] = agents if agents is not None else []
-        self.skip_step = skip_step
+        self._skip_step = skip_step
 
         self._rc = False
         '''Whether step is in racing condition, where agent step is increase while this multi agent hasn't.'''
+
+    @property
+    def skip_step(self) -> bool:
+        return self._skip_step
+
+    @skip_step.setter
+    def skip_step(self, value: bool) -> bool:
+        self._skip_step = value
+        for agent in self.agents():
+            if isinstance(agent, MultiAgentStepMixin):
+                agent.skip_step = self._skip_step
 
     @property
     def n_agents(self) -> int:
@@ -79,7 +90,7 @@ class MultiAgentStepMixin(StepMixin):
 
         self._agents.append(agent)
         agent.parent = self
-        if isinstance(agent, MultiAgent):
+        if isinstance(agent, MultiAgentStepMixin):
             agent.skip_step = self.skip_step
 
     def add_agents(self, agents: Iterable[Agent]) -> None:
@@ -105,7 +116,7 @@ class MultiAgentStepMixin(StepMixin):
 
     def get_next_step(self, current_step: _STEP_TYPE) -> Union[_STEP_TYPE, None]:
         next_step = super().get_next_step(current_step)
-        if not self.skip_step \
+        if not self._skip_step \
                 or next_step is None:
             return next_step
 

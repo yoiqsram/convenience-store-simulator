@@ -3,4 +3,7 @@ from ._base import (
     StepMixin, IntegerStepMixin, FloatStepMixin, DatetimeStepMixin
 )
 from .agent import Agent, MultiAgent, MultiAgentStepMixin
-from .environment import BaseEnvironment, Environment, DatetimeEnvironment
+from .environment import (
+    BaseEnvironment, Environment,
+    DatetimeEnvironment, RandomDatetimeEnvironment
+)

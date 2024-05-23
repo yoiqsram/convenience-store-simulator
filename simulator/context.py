@@ -44,6 +44,8 @@ class GlobalContext:
     INITIAL_DATE: date = get_environment_variable('SIMULATOR_INITIAL_DATE', date, date.today())
     SIMULATOR_SPEED: float = get_environment_variable('SIMULATOR_SPEED', float, 1.0)
     SIMULATOR_INTERVAL: float = get_environment_variable('SIMULATOR_INTERVAL', float, 1.0)
+    SIMULATOR_INTERVAL_MIN: float = get_environment_variable('SIMULATOR_INTERVAL_MIN', float)
+    SIMULATOR_INTERVAL_MAX: float = get_environment_variable('SIMULATOR_INTERVAL_MAX', float)
     CURRENCY_MULTIPLIER: float = get_environment_variable('SIMULATOR_CURRENCY_MULTIPLIER', float, 1.0)
 
     POPULATION_FAMILY_SIZE: float = get_environment_variable('SIMULATOR_POPULATION_FAMILY_SIZE', float, 3.0)

@@ -285,6 +285,9 @@ class DatetimeStepMixin(StepMixin):
         if isinstance(next_step, datetime):
             return next_step.date()
 
+    def total_time_elapsed(self) -> timedelta:
+        return self._calculate_interval(self._initial_step, self._current_step)
+
     def step(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
         return super().step(*args, **kwargs)
 
@@ -299,11 +302,11 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
             interval: Tuple[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]],
             max_step: datetime = None,
         ) -> None:
-        self._min_interval, self._max_interval = self._normalize_interval_range(interval)
+        self._interval_min, self._interval_max = self._normalize_interval_range(interval)
 
         super().__init_step__(
             initial_step,
-            self._min_interval,
+            self._interval_min,
             max_step
         )
 
@@ -320,8 +323,14 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
         elif isinstance(value, tuple) \
                 or isinstance(value, list):
             min_interval, max_interval = value
-            min_interval = cast(min_interval, timedelta)
-            max_interval = cast(max_interval, timedelta)
+            min_interval: timedelta = cast(min_interval, timedelta)
+            max_interval: timedelta = cast(max_interval, timedelta)
+
+            if min_interval > max_interval:
+                raise ValueError(
+                    f'Minimum interval should be less than or equal to the maximum interval, '
+                    f'{min_interval.total_seconds()} is greater then {max_interval.total_seconds}.'
+                )
 
         else:
             raise ValueError(
@@ -333,8 +342,8 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
 
     @property
     def interval(self) -> timedelta:
-        if self._min_interval == self._max_interval:
-            return self._min_interval
+        if self._interval_min == self._interval_max:
+            return self._interval_min
         return self.random_interval()
 
     @interval.setter
@@ -342,19 +351,19 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
             self,
             value: Tuple[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]]
         ) -> None:
-        self._min_interval, self._max_interval = self._normalize_interval_range(value)
+        self._interval_min, self._interval_max = self._normalize_interval_range(value)
 
     @property
-    def min_interval(self) -> timedelta:
-        return self._min_interval
+    def interval_min(self) -> timedelta:
+        return self._interval_min
 
     @property
-    def max_interval(self) -> timedelta:
-        return self._max_interval
+    def interval_max(self) -> timedelta:
+        return self._interval_max
 
     def random_interval(self) -> timedelta:
         interval = self._rng.uniform(
-            self._min_interval.total_seconds(),
-            self._max_interval.total_seconds()
+            self._interval_min.total_seconds(),
+            self._interval_max.total_seconds()
         )
         return timedelta(seconds=interval)

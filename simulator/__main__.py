@@ -79,23 +79,26 @@ if __name__ == '__main__':
 
         simulator: Simulator = globals()['simulator']
 
-        simulator.speed = GlobalContext.SIMULATOR_SPEED
-        if GlobalContext.SIMULATOR_INTERVAL_MIN is None:
-            simulator.interval = GlobalContext.SIMULATOR_INTERVAL
-        else:
-            simulator.interval = (
-                GlobalContext.SIMULATOR_INTERVAL_MIN,
-                GlobalContext.SIMULATOR_INTERVAL_MAX
-            )
+        # Adjust simulation speed and interval
+        if args.speed is not None:
+            simulator.speed = args.speed
 
-        current_datetime = simulator.current_datetime()
-        max_datetime = cast(args.max_datetime, datetime) if args.max_datetime is not None else datetime.now()
-        checkpoint_interval = args.checkpoint if args.checkpoint > 0 else None
+        if args.interval_min is not None:
+            interval_max = args.interval_max if args.interval_max is not None else simulator.interval_max
+            simulator.interval = ( args.interval_min, interval_max )
+        elif args.interval is not None:
+            simulator.interval = args.interval
 
+        # Run simulation
         simulator_logger.info('Continue run simulator from previous checkpoint. ')
-        simulator_logger.info(f'Last simulation time: {current_datetime}.')
+        simulator_logger.info(f'Last simulation time: {simulator.current_datetime()}.')
+
+        sync = not args.no_sync
+        max_datetime = cast(args.max_datetime, datetime) if args.max_datetime is not None else args.max_datetime
+        skip_step = args.skip_step
+        checkpoint_interval = args.checkpoint if args.checkpoint > 0 else None
         while simulator.next_step() is not None:
-            simulator.run(interval=checkpoint_interval, skip_step=args.skip_step, sync=args.no_sync)
+            simulator.run(sync, max_datetime, skip_step)
 
             simulator_logger.info(f"Dumping simulator checkpoint at '{simulator.current_datetime()}' simulation time.")
             dump_session(

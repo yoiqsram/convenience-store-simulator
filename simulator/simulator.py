@@ -4,7 +4,7 @@ from typing import Iterable, List, Tuple
 
 from .core import RandomDatetimeEnvironment
 from .context import GlobalContext, DAYS_IN_YEAR
-from .database import Database, BaseModel, create_database
+from .database import Database, StoreModel, create_database
 from .logging import simulator_logger, simulator_log_format
 from .population import Place
 from .store import Store
@@ -53,11 +53,13 @@ class Simulator(RandomDatetimeEnvironment):
         self.store_growth_rate = store_growth_rate if store_growth_rate is not None else GlobalContext.STORE_GROWTH_RATE
 
         # Create simulator database if not available
-        database: Database = BaseModel._meta.database
-        if database.table_exists('version'):
-            simulator_logger.info('Database is already exists.')
+        if StoreModel.table_exists() \
+                and StoreModel.select().count() > 1:
+            raise FileExistsError('Database is already exists.')
+
         else:
             _time = datetime.now()
+            database: Database = StoreModel._meta.database
             simulator_logger.info(f"Preparing {database.__class__.__name__.split('Database')[0]} database for the simulator...")
             create_database(initial_datetime)
             simulator_logger.info(f'Simulator database is ready. {(datetime.now() - _time).total_seconds():.1f}s')
@@ -125,7 +127,7 @@ class Simulator(RandomDatetimeEnvironment):
         n_stores = self.n_stores
         n_active_stores = len([ store for store in self.stores() if store.initial_datetime <= current_datetime ])
 
-        # Daily update possibility of store growth
+        # @ 1 day - Daily update possibility of store growth
         if current_datetime.day != past_datetime.day:
             for random in self._rng.random(n_stores):
                 if random > (1 - np.power(1 + self.store_growth_rate, 1 / DAYS_IN_YEAR)):
@@ -143,7 +145,7 @@ class Simulator(RandomDatetimeEnvironment):
                 except:
                     simulator_logger.error(f'Failed to build new store.', exc_info=True)
 
-        # Log market population size monthly
+        # @ 1 month - Log market population size monthly
         if current_datetime.month != past_datetime.month:
             simulator_logger.info(simulator_log_format(
                 f'Total active stores: {n_active_stores}/{n_stores}.',
@@ -156,7 +158,26 @@ class Simulator(RandomDatetimeEnvironment):
                     dt=current_datetime
                 ))
 
-        # Log today orders hourly
+        # @ 5 mins - Log synchronization between simulation and the real/projected datetime
+        if current_datetime.minute != past_datetime.minute:
+            real_current_datetime = datetime.now()
+            speed_adjusted_real_current_datetime = real_current_datetime
+            if self.speed != 1.0:
+                speed_adjusted_real_current_datetime = (
+                    self._real_initial_datetime
+                    + self.speed * (real_current_datetime - self._real_initial_datetime)
+                )
+            behind_seconds = (speed_adjusted_real_current_datetime - current_datetime).total_seconds()
+            if behind_seconds >= self._interval.total_seconds():
+                simulator_logger.info(simulator_log_format(
+                    'Simulation is behind the',
+                    'real datetime' if self.speed == 1.0
+                    else f"projected datetime ({speed_adjusted_real_current_datetime.isoformat(sep=' ', timespec='seconds')})",
+                    f'by {behind_seconds:.1f}s.',
+                    dt=current_datetime
+                ))
+
+        # @ 1 hour - Log today orders hourly
         if current_datetime.hour != past_datetime.hour:
             simulator_logger.info(simulator_log_format(
                 f'Total active stores: {n_active_stores}/{n_stores}.',

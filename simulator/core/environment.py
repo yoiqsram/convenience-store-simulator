@@ -21,12 +21,13 @@ class BaseEnvironment(MultiAgentStepMixin, RandomGeneratorMixin, ReprMixin, meta
             initial_step: _STEP_TYPE,
             interval: _INTERVAL_TYPE,
             max_step: _STEP_TYPE = None,
+            skip_step: bool = False,
             agents: Iterable[Agent] = None,
             seed: int = None
         ) -> None:
         super().__init_rng__(seed)
         super().__init_step__(initial_step, interval, max_step)
-        super().__init_agents__(agents)
+        super().__init_agents__(agents, skip_step)
 
     @abc.abstractmethod
     def run(self, interval: _INTERVAL_TYPE = None, *args, **kwargs) -> None: ...
@@ -35,18 +36,25 @@ class BaseEnvironment(MultiAgentStepMixin, RandomGeneratorMixin, ReprMixin, meta
 class Environment(BaseEnvironment):
     def __init__(
             self,
-            initial_step: int = 0,
-            interval: int = 1,
-            max_step: int = None,
+            initial_step: Union[int, float] = 0,
+            interval: Union[int, float] = 1,
+            max_step: Union[int, float] = None,
             agents: Iterable[Agent] = None,
             seed: int = None
         ) -> None:
+        if isinstance(initial_step, float) \
+                or isinstance(interval, float):
+            type_ = float
+        else:
+            type_ = int
+
         super().__init__(
-            initial_step,
-            interval,
-            max_step,
-            agents,
-            seed
+            initial_step=cast(initial_step, type_),
+            interval=cast(interval, type_),
+            max_step=cast(max_step, type_),
+            skip_step=False,
+            agents=agents,
+            sed=seed
         )
 
     def step(self) -> Tuple[int, Union[int, None]]:
@@ -80,11 +88,13 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
             initial_step=initial_datetime,
             interval=interval,
             max_step=max_datetime,
+            skip_step=skip_step,
             agents=agents,
             seed=seed
         )
         self.speed = speed
-        self.skip_step = skip_step
+
+        self._real_initial_datetime: datetime = None
 
     @property
     def step_delay(self) -> float:
@@ -95,57 +105,67 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
         interval = (next_step - self.current_step()) if self.skip_step else self._interval
         return interval.total_seconds() / self.speed
 
-    def total_time_elapsed(self) -> timedelta:
-        return self._calculate_interval(self._initial_step, self._current_step)
+    def total_real_time_elapased(self) -> timedelta:
+        if self._real_initial_datetime is None:
+            raise ValueError(
+                'Environment has not been run or through at least one step yet.'
+            )
+
+        return datetime.now() - self._real_initial_datetime
 
     def step(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
+        if self._real_initial_datetime is None:
+            self._real_initial_datetime = datetime.now()
+
         return super().step(*args, **kwargs)
 
-    def run(
+    def step_await(
             self,
-            interval: _STEP_TYPE = None,
-            skip_step: bool = None,
-            sync: bool = True,
+            sync: bool,
             *args,
             **kwargs
-        ) -> None:
-        if interval is not None:
-            interval = cast(interval, timedelta)
-
-        if skip_step is not None:
-            _skip_step = self.skip_step
-            self.skip_step = skip_step
-
-        start_step = self.current_step()
-        next_step = self.next_step()
-        while next_step is not None \
-                and (
-                    interval is None
-                    or next_step - start_step <= interval
-                ):
-            if sync:
-                _, next_step = self.step_await(*args, **kwargs)
-            else:
-                _, next_step = self.step(*args, **kwargs)
-
-        if skip_step is not None:
-            self.skip_step = _skip_step
-
-    def step_await(self, *args, **kwargs) -> Tuple[datetime, Union[datetime, None]]:
-        start_datetime = datetime.now()
+        ) -> Tuple[datetime, Union[datetime, None]]:
+        real_start_datetime = datetime.now()
         current_datetime, next_datetime = self.step(*args, **kwargs)
 
-        if next_datetime is not None:
-            elapsed_seconds = (datetime.now() - start_datetime).total_seconds()
+        real_current_datetime = datetime.now()
+        speed_adjusted_real_current_datetime = real_current_datetime
+        if self.speed != 1.0:
+            speed_adjusted_real_current_datetime = (
+                self._real_initial_datetime
+                + self.speed * (real_current_datetime - self._real_initial_datetime)
+            )
+        if sync and next_datetime is not None \
+                and next_datetime > speed_adjusted_real_current_datetime:
+            elapsed_seconds = (real_current_datetime - real_start_datetime).total_seconds()
             await_seconds = self.step_delay - elapsed_seconds
             if await_seconds > 0:
                 time.sleep(await_seconds)
 
         return current_datetime, next_datetime
 
-    @classmethod
-    def load(cls, path: Path) -> DatetimeEnvironment:
-        super().load(path)
+    def run(
+            self,
+            sync: bool = True,
+            max_datetime: _STEP_TYPE = None,
+            skip_step: bool = None,
+            *args,
+            **kwargs
+        ) -> None:
+        if skip_step is not None:
+            _skip_step = self.skip_step
+            self.skip_step = skip_step
+
+        next_step = self.next_step()
+        while next_step is not None \
+                and (
+                    max_datetime is None
+                    or next_step > max_datetime
+                ):
+            _, next_step = self.step_await(sync=sync, *args, **kwargs)
+
+        if skip_step is not None:
+            self.skip_step = _skip_step
 
 
 class RandomDatetimeEnvironment(DatetimeEnvironment, RandomDatetimeStepMixin):

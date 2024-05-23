@@ -160,7 +160,7 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
         while next_step is not None \
                 and (
                     max_datetime is None
-                    or next_step > max_datetime
+                    or max_datetime >= next_step
                 ):
             _, next_step = self.step_await(sync=sync, *args, **kwargs)
 

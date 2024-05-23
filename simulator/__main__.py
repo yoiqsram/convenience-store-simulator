@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from .cli import parse_args, init_simulator
 from .context import GlobalContext
+from .database import *
 from .logging import simulator_logger
 from .simulator import Simulator
 from .utils import cast
@@ -90,8 +91,19 @@ if __name__ == '__main__':
             simulator.interval = args.interval
 
         # Run simulation
+        current_datetime = simulator.current_datetime()
         simulator_logger.info('Continue run simulator from previous checkpoint. ')
-        simulator_logger.info(f'Last simulation time: {simulator.current_datetime()}.')
+        simulator_logger.info(f'Last simulation time: {current_datetime}.')
+
+        for db_model in [
+                EmployeeModel,
+                EmployeeShiftScheduleModel,
+                EmployeeAttendanceModel,
+                OrderModel,
+                OrderSKUModel,
+                StoreModel
+            ]:
+            db_model.delete().where(db_model.created_datetime > current_datetime).execute()
 
         sync = not args.no_sync
         max_datetime = cast(args.max_datetime, datetime) if args.max_datetime is not None else args.max_datetime
@@ -100,7 +112,8 @@ if __name__ == '__main__':
         while simulator.next_step() is not None:
             simulator.run(sync, max_datetime, skip_step)
 
-            simulator_logger.info(f"Dumping simulator checkpoint at '{simulator.current_datetime()}' simulation time.")
+            current_datetime = simulator.current_datetime()
+            simulator_logger.info(f"Dumping simulator checkpoint at '{current_datetime}' simulation time.")
             dump_session(
                 temp_checkpoint_path,
                 { 'simulator': simulator }
@@ -119,4 +132,7 @@ if __name__ == '__main__':
                 old_checkpoint_path.unlink()
 
             os.rename(temp_checkpoint_path, GlobalContext.CHECKPOINT_SESSION_PATH)
+            version_record = VersionModel.get()
+            version_record.modified_datetime = current_datetime
+            version_record.save()
             simulator_logger.info(f"Checkpoint saved in '{GlobalContext.CHECKPOINT_SESSION_PATH}'.")

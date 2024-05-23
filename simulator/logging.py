@@ -6,7 +6,7 @@ from .context import GlobalContext
 
 
 def simulator_log_format(*args, dt: datetime, sep=' '):
-    return f"[SIM-TIME {dt.isoformat(sep=' ')}] {sep.join([ str(arg) for arg in args ])}"
+    return f"[SIM-TIME {dt.isoformat(sep=' ', timespec='seconds')}] {sep.join([ str(arg) for arg in args ])}"
 
 
 def get_logger(

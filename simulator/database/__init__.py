@@ -1,5 +1,6 @@
 from datetime import datetime
 from peewee import Database, IntegrityError
+from typing import List
 
 from ..context import GlobalContext
 from ..enums import PaymentMethod
@@ -9,29 +10,30 @@ from .sku import *
 from .order import *
 from .store import *
 
+MODELS: List[BaseModel] = [
+    EmployeeModel,
+    EmployeeShiftScheduleModel,
+    EmployeeAttendanceModel,
+    PaymentMethodModel,
+    OrderModel,
+    OrderSKUModel,
+    CategoryModel,
+    ProductModel,
+    SKUModel,
+    CountryModel,
+    ProvinceModel,
+    CityModel,
+    DistrictModel,
+    SubdistrictModel,
+    StoreModel
+]
 
 def create_database(created_datetime: datetime = None) -> Database:
     if created_datetime is None:
         created_datetime = datetime.now()
 
     database: Database = BaseModel._meta.database
-    database.create_tables([
-        EmployeeModel,
-        EmployeeShiftScheduleModel,
-        EmployeeAttendanceModel,
-        PaymentMethodModel,
-        OrderModel,
-        OrderSKUModel,
-        CategoryModel,
-        ProductModel,
-        SKUModel,
-        CountryModel,
-        ProvinceModel,
-        CityModel,
-        DistrictModel,
-        SubdistrictModel,
-        StoreModel
-    ])
+    database.create_tables(MODELS)
 
     _populate_payment_method(created_datetime)
     _populate_items(created_datetime)

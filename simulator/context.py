@@ -39,7 +39,7 @@ class GlobalContext:
     POSTGRES_DB_PORT: Union[str, None] = get_environment_variable('POSTGRES_DB_PORT')
 
     CHECKPOINT_SESSION_PATH: Path = get_environment_variable('SIMULATOR_CHECKPOINT_SESSION_PATH', Path, DATA_DIR / 'checkpoint.pkl')
-    CHECKPOINT_INTERVAL: int = get_environment_variable('SIMULATOR_CHECKPOINT_INTERVAL', int, 86400)
+    CHECKPOINT_INTERVAL: int = get_environment_variable('SIMULATOR_CHECKPOINT_INTERVAL', int, 86400 * 30)
 
     INITIAL_DATE: date = get_environment_variable('SIMULATOR_INITIAL_DATE', date, date.today())
     SIMULATOR_SPEED: float = get_environment_variable('SIMULATOR_SPEED', float, 1.0)

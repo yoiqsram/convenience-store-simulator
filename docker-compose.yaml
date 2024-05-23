@@ -39,6 +39,10 @@ services:
     <<: *common
     command:
       - run
+      - --speed=$${SIMULATOR_SPEED:-1.0}
+      - --interval=$${SIMULATOR_INTERVAL:-1}
+      - --skip-step
+      - --checkpoint=$${SIMULATOR_CHECKPOINT_INTERVAL:-2592000}
     environment:
       <<: *common-env
     restart: always
@@ -53,10 +57,14 @@ services:
     command:
       - -c
       - |
+        export SEED=$${_SEED:-}
+        export BACKUP=$${_INITIAL_BACKUP:-false}
+        export CHECKPOINT_INTERVAL=$${_INITIAL_SIMULATOR_CHECKPOINT_INTERVAL:-0}
         export SIMULATOR_INITIAL_DATE="$${_INITIAL_DATE}"
         export SIMULATOR_MAX_DATE="$${_INITIAL_MAX_DATE}"
-        export SIMULATOR_INTERVAL="$${_INITIAL_SIMULATOR_INTERVAL:-1}"
-        export SIMULATOR_SPEED="$${_INITIAL_SIMULATOR_SPEED:-1200}"
+        export SIMULATOR_INTERVAL="$${_INITIAL_SIMULATOR_INTERVAL:-1.0}"
+        export SIMULATOR_INTERVAL_MIN="$${_INITIAL_SIMULATOR_INTERVAL_MIN:-1.0}"
+        export SIMULATOR_INTERVAL_MAX="$${_INITIAL_SIMULATOR_INTERVAL_MAX:-5.0}"
         export SIMULATOR_INITIAL_STORES="$${_INITIAL_STORES:-100}"
         export SIMULATOR_INITIAL_STORES_RANGE_DAYS="$${_INITIAL_STORES_RANGE_DAYS:-180}"
         export SIMULATOR_STORE_GROWTH_RATE="$${_INITIAL_STORE_GROWTH_RATE:-0.5}"
@@ -68,7 +76,7 @@ services:
           exit 0
         fi
 
-        SEED=${_SEED:-}
+        SEED=$${SEED}
         echo "Initializing simulator..."
         if [ -z "$${SEED}" ]; then
           python -m simulator init
@@ -83,18 +91,23 @@ services:
           exit 1
         fi
 
+        if [ "$${BACKUP}" -eq true ]; then
+          echo "Complete backup the simulator checkpoint."
+          cp /app/data/checkpoint.pkl /app/data/checkpoint.pkl.backup
+        fi
+
         if [ -z "$${_INITIAL_DATE}" ]; then
           echo "'_INITIAL_DATE' is not set. Initial simulation will be not performed."
           echo "The next run will have simulation to run start from '$(date +%Y-%m-%d)'."
-
-        else
-          if [ -z "$${_INITIAL_MAX_DATE}" ]; then
-            export SIMULATOR_MAX_DATE="$(date +'%Y-%m-%d')"
-            echo "'_INITIAL_MAX_DATE' is not set. It will be set as today."
-          fi
-          echo "Running initial simulation from '$${SIMULATOR_INITIAL_DATE}' until '$${SIMULATOR_MAX_DATE}' with simulation speed 1:$${SIMULATOR_SPEED}."
-          python -m simulator run --max-datetime=$${SIMULATOR_MAX_DATE} --skip-step --checkpoint=$${_INITIAL_SIMULATOR_CHECKPOINT_INTERVAL:-0}
+          exit 0
         fi
+
+        if [ -z "$${_INITIAL_MAX_DATE}" ]; then
+          export SIMULATOR_MAX_DATE="$(date +'%Y-%m-%d')"
+          echo "'_INITIAL_MAX_DATE' is not set. It will be set as today."
+        fi
+        echo "Running initial simulation from '$${SIMULATOR_INITIAL_DATE}' until '$${SIMULATOR_MAX_DATE}' with simulation speed 1:$${SIMULATOR_SPEED}."
+        python -m simulator run --max-datetime=$${SIMULATOR_MAX_DATE} --skip-step --no-sync --checkpoint=$${CHECKPOINT_INTERVAL}
 
         if [ $? -eq 0 ]; then
           echo "Initial simulation has been completed. The next run will have simulation to run start from '$${SIMULATOR_MAX_DATE}'."

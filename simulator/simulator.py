@@ -158,8 +158,9 @@ class Simulator(RandomDatetimeEnvironment):
                     dt=current_datetime
                 ))
 
-        # @ 5 mins - Log synchronization between simulation and the real/projected datetime
-        if current_datetime.minute != past_datetime.minute:
+        # @ 15 mins - Log synchronization between simulation and the real/projected datetime
+        if current_datetime.minute % 15 == 0 \
+                and current_datetime.minute != past_datetime.minute:
             real_current_datetime = datetime.now()
             speed_adjusted_real_current_datetime = real_current_datetime
             if self.speed != 1.0:

@@ -11,6 +11,26 @@ from typing import Any, Dict, Type, Union
 
 from ..context import GlobalContext
 
+__all__ = [
+    'AutoField',
+    'BigAutoField',
+    'BigIntegerField',
+    'CharField',
+    'DateField',
+    'DateTimeField',
+    'DoesNotExist',
+    'FloatField',
+    'ForeignKeyField',
+    'IntegerField',
+    'Model',
+    'PostgresqlDatabase',
+    'SQL',
+    'SqliteDatabase',
+    'BaseModel',
+    'VersionModel',
+    'ModelMixin'
+]
+
 
 class BaseModel(Model):
     created_datetime = DateTimeField()
@@ -47,7 +67,7 @@ class ModelMixin:
             self,
             unique_identifiers: Dict[str, Any],
             **kwargs
-        ) -> None:
+            ) -> None:
         self._unique_identifiers = unique_identifiers
 
         self._record: BaseModel
@@ -61,7 +81,7 @@ class ModelMixin:
             for name, value in kwargs.items():
                 setattr(self._record, name, value)
 
-        except:
+        except Exception:
             self._record = self.__model__(
                 **self._unique_identifiers,
                 **kwargs

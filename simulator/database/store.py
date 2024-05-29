@@ -1,4 +1,7 @@
-from .base import *
+from .base import (
+    AutoField, CharField, DateTimeField,
+    ForeignKeyField, BaseModel
+)
 
 __all__ = [
     'CountryModel',

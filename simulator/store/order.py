@@ -17,15 +17,15 @@ if TYPE_CHECKING:
 
 class Order(
         RestorableMixin, ReprMixin,
-        repr_attrs=( 'n_order_skus', 'status' )
-    ):
+        repr_attrs=('n_order_skus', 'status')
+        ):
     __additional_types__ = RestoreTypes(PaymentMethod, OrderStatus)
 
     def __init__(
             self,
             order_skus: List[Tuple[SKU, int]],
             begin_datetime: datetime
-        ) -> None:
+            ) -> None:
         self._order_skus = order_skus
         self.buyer: Person = None
         self.payment_method: PaymentMethod = None
@@ -55,7 +55,7 @@ class Order(
             self,
             store: Store,
             current_datetime: datetime
-        ) -> None:
+            ) -> None:
         store.add_order_queue(self)
         self._status = OrderStatus.QUEUING
         self.queue_datetime = current_datetime
@@ -67,18 +67,24 @@ class Order(
             current_datetime: datetime,
             buyer_gender: Gender = None,
             buyer_age_group: AgeGroup = None
-        ) -> None:
+            ) -> None:
         database: Database = OrderModel._meta.database
         with database.atomic():
             for sku, _ in self._order_skus:
                 sku: SKU
                 sku.update(current_datetime)
 
+            if buyer_gender is not None:
+                buyer_gender = buyer_gender.name
+
+            if buyer_age_group is not None:
+                buyer_age_group = buyer_age_group.name
+
             self._order_record = OrderModel.create(
                 store=store.record.id,
                 cashier_employee=employee.record.id,
-                buyer_gender=buyer_gender.name if buyer_gender is not None else None,
-                buyer_age_group=buyer_age_group.name if buyer_age_group is not None else None,
+                buyer_gender=buyer_gender,
+                buyer_age_group=buyer_age_group,
                 created_datetime=current_datetime
             )
 
@@ -138,7 +144,7 @@ class Order(
     @classmethod
     def _restore(cls, attrs: Dict[str, Any], **kwargs) -> Order:
         order_skus = [
-            ( SKU.get(name), quantity )
+            (SKU.get(name), quantity)
             for name, quantity in attrs['order_skus']
         ]
 
@@ -157,5 +163,7 @@ class Order(
             obj.complete_datetime
         ) = attrs['timeline']
 
-        obj._order_record = OrderModel.get(OrderModel.id == attrs['order_record_id'])
+        obj._order_record = OrderModel.get(
+            OrderModel.id == attrs['order_record_id']
+        )
         return obj

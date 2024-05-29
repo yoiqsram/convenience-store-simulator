@@ -5,10 +5,51 @@ from typing import List
 from ..context import GlobalContext
 from ..enums import PaymentMethod
 from .base import BaseModel, VersionModel, ModelMixin
-from .employee import *
-from .sku import *
-from .order import *
-from .store import *
+from .employee import (
+    EmployeeModel,
+    EmployeeShiftScheduleModel,
+    EmployeeAttendanceModel
+)
+from .sku import (
+    PaymentMethodModel,
+    OrderModel,
+    OrderSKUModel
+)
+from .order import (
+    CategoryModel,
+    ProductModel,
+    SKUModel
+)
+from .store import (
+    CountryModel,
+    ProvinceModel,
+    CityModel,
+    DistrictModel,
+    SubdistrictModel,
+    StoreModel
+)
+
+__all__ = [
+    'MODELS',
+    'BaseModel',
+    'VersionModel',
+    'ModelMixin',
+    'EmployeeModel',
+    'EmployeeShiftScheduleModel',
+    'EmployeeAttendanceModel',
+    'PaymentMethodModel',
+    'OrderModel',
+    'OrderSKUModel',
+    'CategoryModel',
+    'ProductModel',
+    'SKUModel',
+    'CountryModel',
+    'ProvinceModel',
+    'CityModel',
+    'DistrictModel',
+    'SubdistrictModel',
+    'StoreModel'
+]
 
 MODELS: List[BaseModel] = [
     EmployeeModel,
@@ -40,7 +81,7 @@ def create_database(created_datetime: datetime = None) -> Database:
     _populate_items(created_datetime)
     _populate_locations(created_datetime)
 
-    database.create_tables([ VersionModel ])
+    database.create_tables([VersionModel])
     VersionModel.create(
         created_datetime=created_datetime,
         modified_datetime=created_datetime
@@ -90,10 +131,15 @@ def _populate_items(created_datetime: datetime) -> None:
 
             for sku in product['skus']:
                 try:
+                    price = 100 * np.ceil(
+                        sku['price']
+                        * GlobalContext.CURRENCY_MULTIPLIER
+                        / 100
+                    )
                     SKUModel.create(
                         name=sku['name'],
                         brand=sku['brand'],
-                        price=np.ceil(sku['price'] * GlobalContext.CURRENCY_MULTIPLIER / 100) * 100,
+                        price=price,
                         cost=sku['cost'] * GlobalContext.CURRENCY_MULTIPLIER,
                         product=product_record.id,
                         created_datetime=created_datetime,

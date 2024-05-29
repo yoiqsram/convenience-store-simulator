@@ -15,16 +15,16 @@ if TYPE_CHECKING:
 class Agent(
         RestorableMixin, SuperclassMixin,
         StepMixin, RandomGeneratorMixin, ReprMixin,
-        repr_attrs=( 'current_step', )
-    ):
+        repr_attrs=('current_step',)
+        ):
     def __init__(
             self,
             initial_step: _STEP_TYPE = 0,
             interval: _INTERVAL_TYPE = 1,
             max_step: _STEP_TYPE = None,
             seed: int = None,
-            rng = None
-        ) -> None:
+            rng=None
+            ) -> None:
         self.parent: Union[MultiAgent, BaseEnvironment, None] = None
 
         super().__init_step__(initial_step, interval, max_step)
@@ -38,7 +38,10 @@ class Agent(
             if agent != self:
                 yield agent
 
-    def get_next_step(self, current_step: _STEP_TYPE) -> Union[_STEP_TYPE, None]:
+    def get_next_step(
+            self,
+            current_step: _STEP_TYPE
+            ) -> Union[_STEP_TYPE, None]:
         next_step = super().get_next_step(current_step)
 
         if next_step is not None \
@@ -49,7 +52,11 @@ class Agent(
 
         return next_step
 
-    def step(self, *args, **kwargs) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
+    def step(
+            self,
+            *args,
+            **kwargs
+            ) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
         current_step, next_step = super().step(*args, **kwargs)
 
         if self.parent is not None:
@@ -83,12 +90,13 @@ class MultiAgentStepMixin(StepMixin):
             self,
             agents: Iterable[Agent] = None,
             skip_step: bool = False
-        ) -> None:
+            ) -> None:
         self._agents: List[Agent] = agents if agents is not None else []
         self._skip_step = skip_step
 
         self._rc = False
-        '''Whether step is in racing condition, where agent step is increase while this multi agent hasn't.'''
+        '''Whether step is in racing condition, 
+        where agent step is increase while this multi agent hasn't.'''
 
     @property
     def skip_step(self) -> bool:
@@ -136,7 +144,10 @@ class MultiAgentStepMixin(StepMixin):
 
         return super().get_next_step(next_step)
 
-    def get_next_step(self, current_step: _STEP_TYPE) -> Union[_STEP_TYPE, None]:
+    def get_next_step(
+            self,
+            current_step: _STEP_TYPE
+            ) -> Union[_STEP_TYPE, None]:
         next_step = super().get_next_step(current_step)
         if not self._skip_step \
                 or next_step is None:
@@ -146,7 +157,7 @@ class MultiAgentStepMixin(StepMixin):
         for agent in self.agents():
             agent_next_step = agent.next_step()
             if min_agent_next_step is None \
-                or agent_next_step < min_agent_next_step:
+                    or agent_next_step < min_agent_next_step:
                 min_agent_next_step = agent_next_step
 
         if min_agent_next_step is None \
@@ -155,7 +166,11 @@ class MultiAgentStepMixin(StepMixin):
 
         return next_step
 
-    def step(self, *args, **kwargs) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
+    def step(
+            self,
+            *args,
+            **kwargs
+            ) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
         self._rc = True
 
         _, next_step = super().step(*args, **kwargs)
@@ -173,8 +188,8 @@ class MultiAgentStepMixin(StepMixin):
 class MultiAgent(
         Agent,
         MultiAgentStepMixin,
-        repr_attrs=( 'n_agents', 'current_step' )
-    ):
+        repr_attrs=('n_agents', 'current_step')
+        ):
     def __init__(
             self,
             initial_step: _STEP_TYPE = 0,
@@ -183,8 +198,8 @@ class MultiAgent(
             skip_step: bool = False,
             agents: Iterable[Agent] = None,
             seed: int = None,
-            rng = None
-        ) -> None:
+            rng=None
+            ) -> None:
         super().__init__(initial_step, interval, max_step, seed, rng)
         super().__init_agents__(agents, skip_step)
 

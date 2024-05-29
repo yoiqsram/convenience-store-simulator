@@ -6,7 +6,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Tuple, Union, TYPE_CHECKING
 
-from ..context import GlobalContext
 from ..core import Agent, DatetimeStepMixin
 from ..core.restore import RestoreTypes
 from ..database import EmployeeModel, EmployeeAttendanceModel, ModelMixin
@@ -26,8 +25,8 @@ class Employee(
         Agent,
         DatetimeStepMixin, ModelMixin,
         model=EmployeeModel,
-        repr_attrs=( 'name', 'status', 'shift' )
-    ):
+        repr_attrs=('name', 'status', 'shift')
+        ):
     __additional_types__ = RestoreTypes(EmployeeStatus, EmployeeShift)
 
     def __init__(
@@ -41,7 +40,7 @@ class Employee(
             discipline_rate: float = None,
             seed: int = None,
             rng: np.random.RandomState = None
-        ) -> None:
+            ) -> None:
         super().__init__(
             initial_datetime,
             interval,
@@ -66,7 +65,7 @@ class Employee(
         self.current_order: Union[Order, None] = None
 
         super().__init_model__(
-            unique_identifiers={ 'person_id': self.person.id },
+            unique_identifiers={'person_id': self.person.id},
             name=person.name,
             gender=person.gender.name,
             birth_date=person.birth_date,
@@ -90,7 +89,7 @@ class Employee(
                 current_datetime.date()
             )
             self._next_step = self.schedule_shift_start_datetime
-            
+
             return current_datetime, self._next_step
 
         # Begin shift
@@ -105,7 +104,8 @@ class Employee(
                 f' - STORE {self.parent.place_name}'
                 f' - EMPLOYEE BEGIN SHIFT'
                 f'- {self.name}[{self.record_id}].'
-                f' Would end shift at {self.schedule_shift_end_datetime.isoformat()}.'
+                f' Would end shift at '
+                f'{self.schedule_shift_end_datetime.isoformat()}.'
             )
             self.begin_shift(current_datetime)
 
@@ -114,11 +114,16 @@ class Employee(
                 and self.parent.n_cashiers < self.parent.max_cashiers:
             self.parent.assign_cashier(self)
 
-        # Complete shift, if not busy and there'll be enough cashiers in the store
+        # Complete shift, if not busy
+        # and there'll be enough cashiers in the store
         elif self.status == EmployeeStatus.IDLE \
                 and self.today_shift_end_datetime is None \
                 and self.schedule_shift_end_datetime <= current_datetime \
-                and (self.parent.n_cashiers + self.parent.total_active_shift_employees() - 1) > 0:
+                and (
+                    self.parent.n_cashiers
+                    + self.parent.total_active_shift_employees()
+                    - 1
+                ) > 0:
             store_logger.debug(
                 f'{current_datetime.isoformat()}'
                 f' - STORE {self.parent.place_name}'
@@ -133,9 +138,9 @@ class Employee(
                     current_datetime.month,
                     current_datetime.day
                 )
-                + timedelta(days=1, hours=6) # Wake up time
+                + timedelta(days=1, hours=6)  # Wake up time
             )
-            
+
             return current_datetime, self._next_step
 
         # Wait for order from queue and assign it
@@ -165,8 +170,11 @@ class Employee(
             )
 
             processing_time = self.calculate_checkout_time(self.current_order)
-            self._next_step = current_datetime + timedelta(seconds=processing_time)
-            
+            self._next_step = (
+                current_datetime
+                + timedelta(seconds=processing_time)
+            )
+
             return current_datetime, self._next_step
 
         # Wait for order payment
@@ -188,7 +196,7 @@ class Employee(
             self,
             shift: EmployeeShift,
             shift_date: date
-        ) -> None:
+            ) -> None:
         if shift == EmployeeShift.NONE:
             return
 
@@ -202,9 +210,15 @@ class Employee(
         )
         self.schedule_shift_start_datetime = (
             shift_start_datetime
-            + timedelta(seconds=int(self._rng.normal(-self.discipline_rate * 60, 150)))
+            + timedelta(seconds=int(self._rng.normal(
+                -self.discipline_rate * 60,
+                150
+            )))
         )
-        self.schedule_shift_end_datetime = shift_start_datetime + self.parent.long_shift_hours
+        self.schedule_shift_end_datetime = (
+            shift_start_datetime
+            + self.parent.long_shift_hours
+        )
 
         return None
 
@@ -245,7 +259,13 @@ class Employee(
             )
             + np.sum(
                 np.clip(
-                    self._rng.normal(1.0, 0.25, size=sum([quantity - 1 for _, quantity in order.order_skus()])),
+                    self._rng.normal(
+                        1.0,
+                        0.25,
+                        size=sum([
+                            quantity - 1
+                            for _, quantity in order.order_skus()
+                        ])),
                     0.0,
                     5.0
                 )
@@ -253,8 +273,15 @@ class Employee(
         )
         return checkout_time
 
-    def estimate_age_group(self, person: Person, current_date: date) -> AgeGroup:
-        age = person.age(current_date) + self._rng.normal(0, (6.0 - self.age_recognition_rate) * 2)
+    def estimate_age_group(
+            self,
+            person: Person,
+            current_date: date
+            ) -> AgeGroup:
+        age = (
+            person.age(current_date)
+            + self._rng.normal(0, (6.0 - self.age_recognition_rate) * 2)
+        )
 
         if age < AgeGroup.KID.value:
             return AgeGroup.KID
@@ -298,7 +325,9 @@ class Employee(
         if hasattr(self.person, 'restore_file'):
             self.person.push_restore()
         else:
-            self.person.push_restore(file.parent / f'Person_{uuid.uuid4()}.json')
+            self.person.push_restore(
+                file.parent / f'Person_{uuid.uuid4()}.json'
+            )
 
         if self.current_order is not None:
             if hasattr(self.current_order, 'restore_file'):
@@ -306,14 +335,17 @@ class Employee(
             else:
                 order_dir = file.parents[2] / 'Order'
                 order_dir.mkdir(parents=True, exist_ok=True)
-                self.current_order.push_restore(order_dir / f'{uuid.uuid4()}.json')
+                self.current_order.push_restore(
+                    order_dir / f'{uuid.uuid4()}.json'
+                )
 
         super()._push_restore(file)
 
     @classmethod
     def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Employee:
         initial_step, interval, max_step, next_step = attrs['base_params']
-        age_recognition_rate, counting_skill_rate, content_rate, discipline_rate = \
+        age_recognition_rate, counting_skill_rate, \
+            content_rate, discipline_rate = \
             attrs['skill_params']
 
         for person_restore_file in file.parent.rglob('Person_*.json'):
@@ -343,7 +375,11 @@ class Employee(
         ) = attrs['shift_datetimes']
 
         if attrs['order_rerstore_file'] is not None:
-            obj.current_order = Order.restore(file.parents[2] / 'Order' / attrs['order_rerstore_file'])
+            obj.current_order = Order.restore(
+                file.parents[2]
+                / 'Order'
+                / attrs['order_rerstore_file']
+            )
         return obj
 
     @classmethod
@@ -362,7 +398,7 @@ class Employee(
             discipline_rate_scale: float = 0.5,
             seed: int = None,
             rng: np.random.RandomState = None
-        ) -> Employee:
+            ) -> Employee:
         if rng is None:
             rng = np.random.RandomState(seed)
 
@@ -445,7 +481,7 @@ class Employee(
             discipline_rate_scale: float = 0.5,
             seed: int = None,
             rng: np.random.RandomState = None,
-        ) -> Employee:
+            ) -> Employee:
         return [
             cls.generate(
                 current_date,

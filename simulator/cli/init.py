@@ -26,7 +26,7 @@ def add_init_parser(subparsers) -> None:
 def init_simulator(
         seed: Union[int, None],
         rewrite: bool
-    ) -> Simulator:
+        ) -> Simulator:
     restore_file = GlobalContext.RESTORE_DIR / 'simulator.json'
     if not rewrite and restore_file.exists():
         raise FileExistsError()

@@ -5,7 +5,9 @@ import uuid
 from collections import deque
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Deque, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
+from typing import (
+    Any, Deque, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
+)
 
 from ..context import GlobalContext
 from ..core import MultiAgent, DatetimeStepMixin
@@ -14,7 +16,6 @@ from ..database import (
     SubdistrictModel, EmployeeShiftScheduleModel
 )
 from ..enums import EmployeeShift, EmployeeStatus
-from ..logging import store_logger
 from .customer import Customer
 from .order import Order
 from .employee import Employee
@@ -27,8 +28,11 @@ class Store(
         MultiAgent,
         DatetimeStepMixin, ModelMixin,
         model=StoreModel,
-        repr_attrs=( 'place_name', 'n_employees', 'total_market_population', 'current_datetime' )
-    ):
+        repr_attrs=(
+            'place_name', 'n_employees',
+            'total_market_population', 'current_datetime'
+        )
+        ):
     def __init__(
             self,
             place: Place,
@@ -41,7 +45,7 @@ class Store(
             max_queue: int = 15,
             seed: int = None,
             rng: np.random.RandomState = None
-        ) -> None:
+            ) -> None:
         super().__init__(
             initial_datetime,
             interval,
@@ -54,8 +58,14 @@ class Store(
 
         # Add initial employees
         self._employees: List[Employee] = []
-        self.max_employees = max_employees if max_employees is not None else GlobalContext.STORE_INITIAL_EMPLOYEES
-        initial_employees = initial_employees if initial_employees is not None else GlobalContext.STORE_INITIAL_EMPLOYEES
+
+        if max_employees is None:
+            max_employees = GlobalContext.STORE_INITIAL_EMPLOYEES
+        self.max_employees = max_employees
+
+        if initial_employees is None:
+            initial_employees = GlobalContext.STORE_INITIAL_EMPLOYEES
+
         for _ in range(initial_employees):
             employee = Employee.generate(
                 self.place,
@@ -68,23 +78,39 @@ class Store(
         # Schedule initial shifts
         self.start_shift_hours = {
             EmployeeShift.FIRST: GlobalContext.STORE_OPEN_HOUR,
-            EmployeeShift.SECOND: (GlobalContext.STORE_OPEN_HOUR + GlobalContext.STORE_CLOSE_HOUR) / 2
+            EmployeeShift.SECOND: (
+                GlobalContext.STORE_OPEN_HOUR
+                + GlobalContext.STORE_CLOSE_HOUR
+            ) / 2
         }
-        self.long_shift_hours = timedelta(hours=(GlobalContext.STORE_CLOSE_HOUR - GlobalContext.STORE_OPEN_HOUR) / 2)
+        self.long_shift_hours = timedelta(
+            hours=(
+                GlobalContext.STORE_CLOSE_HOUR
+                - GlobalContext.STORE_OPEN_HOUR
+            ) / 2
+        )
         self.employee_shift_schedules: Dict[Employee, EmployeeShift] = {
             employee.record_id: EmployeeShift.NONE
             for employee in self._employees
         }
-        self.schedule_shifts(shift_month=date(initial_datetime.year, initial_datetime.month, 1))
+        self.schedule_shifts(
+            shift_month=date(
+                initial_datetime.year,
+                initial_datetime.month,
+                1
+            )
+        )
 
         self._cashiers: List[Employee] = []
-        self.max_cashiers = max_cashiers if max_cashiers is not None else GlobalContext.STORE_MAX_CASHIERS        
+        if max_cashiers is None:
+            max_cashiers = GlobalContext.STORE_MAX_CASHIERS
+        self.max_cashiers = max_cashiers
 
         self._order_queue: Deque[Order] = deque(maxlen=max_queue)
 
         place_record: SubdistrictModel = self.place.record
         super().__init_model__(
-            unique_identifiers={ 'subdistrict': place_record.id },
+            unique_identifiers={'subdistrict': place_record.id},
             subdistrict_id=place_record.id
         )
         self.created_datetime = initial_datetime
@@ -147,7 +173,7 @@ class Store(
         try:
             employee.delete_restore()
             self._employees.remove(employee)
-        except:
+        except Exception:
             pass
 
         self.remove_agent(employee)
@@ -162,7 +188,7 @@ class Store(
     def dismiss_cashier(self, employee: Employee) -> None:
         try:
             self._cashiers.remove(employee)
-        except:
+        except Exception:
             pass
 
     def assign_order_queue(self, employee: Employee) -> None:
@@ -176,7 +202,7 @@ class Store(
             if employee.status not in (
                     EmployeeStatus.OFF,
                     EmployeeStatus.OUT_OF_OFFICE
-                ):
+                    ):
                 return True
         return False
 
@@ -190,7 +216,7 @@ class Store(
     def remove_order_queue(self, order: Order) -> None:
         try:
             self._order_queue.remove(order)
-        except:
+        except Exception:
             pass
 
     def step(self) -> Tuple[datetime, Union[datetime, None]]:
@@ -242,7 +268,7 @@ class Store(
 
     def schedule_shifts(self, shift_month: date) -> None:
         shifts = (
-            [ EmployeeShift.FIRST, EmployeeShift.SECOND ]
+            [EmployeeShift.FIRST, EmployeeShift.SECOND]
             * int(np.ceil(self.n_employees / 2))
         )[:self.n_employees]
         self._rng.shuffle(shifts)
@@ -254,31 +280,51 @@ class Store(
 
         database: Database = EmployeeShiftScheduleModel._meta.database
         with database.atomic():
-            created_datetime = datetime(shift_month.year, shift_month.month, shift_month.day)
+            created_datetime = datetime(
+                shift_month.year,
+                shift_month.month,
+                shift_month.day
+            )
             shift_datetime = created_datetime
             next_shift_datetime = shift_datetime + timedelta(days=1)
             while shift_datetime.month != shift_month.month:
-                shift_start_datetime = (
-                    shift_datetime
-                    + timedelta(hours=self.start_shift_hours[shift])
-                )
-                shift_end_datetime = shift_start_datetime + self.long_shift_hours
-
                 try:
                     for record in (
                             EmployeeShiftScheduleModel.select()
-                            .where(EmployeeShiftScheduleModel.shift_start_datetime.between(shift_datetime, next_shift_datetime))
+                            .where(
+                                EmployeeShiftScheduleModel.shift_start_datetime
+                                .between(shift_datetime, next_shift_datetime)
+                            )
                             .execute()
-                        ):
+                            ):
                         record: EmployeeShiftScheduleModel
-                        shift = self.employee_shift_schedules[record.employee_id]
+                        shift = \
+                            self.employee_shift_schedules[record.employee_id]
+                        shift_start_datetime = (
+                            shift_datetime
+                            + timedelta(hours=self.start_shift_hours[shift])
+                        )
+                        shift_end_datetime = (
+                            shift_start_datetime
+                            + self.long_shift_hours
+                        )
                         record.shift_start_datetime = shift_start_datetime
                         record.shift_end_datetime = shift_end_datetime
                         record.created_datetime = created_datetime
                         record.save()
 
-                except:
-                    for employee_id, shift in self.employee_shift_schedules.items():
+                except Exception:
+                    for employee_id, shift in (
+                            self.employee_shift_schedules.items()
+                            ):
+                        shift_start_datetime = (
+                            shift_datetime
+                            + timedelta(hours=self.start_shift_hours[shift])
+                        )
+                        shift_end_datetime = (
+                            shift_start_datetime
+                            + self.long_shift_hours
+                        )
                         EmployeeShiftScheduleModel.create(
                             employee=employee_id,
                             shift_start_datetime=shift_start_datetime,
@@ -320,7 +366,7 @@ class Store(
         else:
             place_dir = base_dir / 'Place'
             place_dir.mkdir(exist_ok=True)
-            self.place.push_restore(place_dir / f'place.json')
+            self.place.push_restore(place_dir / 'place.json')
 
         for agent in self.agents():
             if hasattr(agent, 'current_order') \
@@ -330,18 +376,27 @@ class Store(
                 else:
                     order_dir = base_dir / 'Order'
                     order_dir.mkdir(exists_ok=True)
-                    agent.current_order.push_restore(order_dir / f'{uuid.uuid4()}.json')
+                    agent.current_order.push_restore(
+                        order_dir / f'{uuid.uuid4()}.json'
+                    )
 
             if hasattr(agent, 'restore_file'):
                 agent.push_restore()
             elif type(agent) is Employee:
-                employee_dir = base_dir / 'Employee' / f'Employee_{uuid.uuid4()}'
+                employee_dir = (
+                    base_dir
+                    / 'Employee'
+                    / f'Employee_{uuid.uuid4()}'
+                )
                 employee_dir.mkdir(parents=True, exist_ok=True)
                 agent.push_restore(employee_dir / 'employee.json')
             elif type(agent) is Customer:
                 family_dir = agent.family.restore_file.parent
                 family_dir.mkdir(parents=True, exist_ok=True)
-                agent.push_restore(family_dir / f'Customer_{uuid.uuid4()}.json')
+                agent.push_restore(
+                    family_dir
+                    / f'Customer_{uuid.uuid4()}.json'
+                )
 
         super()._push_restore(file)
 
@@ -349,7 +404,8 @@ class Store(
     def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Store:
         base_dir = file.parent
 
-        initial_step, interval, max_step, next_step, skip_step = attrs['base_params']
+        initial_step, interval, max_step, \
+            next_step, skip_step = attrs['base_params']
         max_employees, max_cashiers, max_queue = attrs['max_params']
         place = Place.restore(base_dir / 'Place' / 'place.json')
         obj = cls(
@@ -367,14 +423,17 @@ class Store(
         obj._skip_step = skip_step
 
         employee_dir = base_dir / 'Employee'
-        for employee_restore_file in employee_dir.glob('Employee_*/employee.json'):
+        for employee_restore_file in (
+                employee_dir.glob('Employee_*/employee.json')
+                ):
             employee_restore_file = str(employee_restore_file)
             employee = Employee.restore(employee_dir / employee_restore_file)
             obj._employees.append(employee)
             obj.add_agent(employee)
 
             shift, is_cashier = attrs['employee_info'][employee_restore_file]
-            obj.employee_shift_schedules[employee] = getattr(EmployeeShift, shift)
+            obj.employee_shift_schedules[employee] = \
+                getattr(EmployeeShift, shift)
             if is_cashier:
                 obj._cashiers.append(employee)
 

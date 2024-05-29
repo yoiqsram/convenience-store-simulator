@@ -10,8 +10,6 @@ from typing import Any, Dict, Union
 
 from .utils import cast
 
-BUILTIN_TYPES = ( str, int, float, bool, list, dict )
-
 
 class RestoreTypes(dict):
     def __init__(self, *args) -> None:
@@ -57,7 +55,7 @@ class RestorableMixin:
 
     def _push_restore(self, file: Path = None) -> None:
         attrs = [
-            [ k, type(v).__name__, self._encode(v).decode() ]
+            [k, type(v).__name__, self._encode(v).decode()]
             for k, v in self.restore_attrs.items()
         ]
         with open(file, 'wb') as f:
@@ -92,7 +90,7 @@ class RestorableMixin:
     def restore(cls, file: Path, **kwargs):
         try:
             return cls.__instances__[str(file.resolve())]
-        except:
+        except Exception:
             pass
 
         attrs = cls.read_restore(file)
@@ -117,7 +115,7 @@ class RestorableMixin:
     @classmethod
     def _encode_fallback(cls, value: Any) -> Any:
         if value is None \
-                or isinstance(value, ( str, int, float, bool )):
+                or isinstance(value, (str, int, float, bool)):
             pass
 
         elif isinstance(value, bytes):
@@ -126,7 +124,7 @@ class RestorableMixin:
         elif isinstance(value, PosixPath):
             value = str(value)
 
-        elif isinstance(value, ( date, datetime )):
+        elif isinstance(value, (date, datetime)):
             value = cast(value, str)
 
         elif isinstance(value, timedelta):
@@ -136,16 +134,19 @@ class RestorableMixin:
             value = value.name
 
         elif isinstance(value, list):
-            value = [ cls._encode_fallback(value_) for value_ in value ]
+            value = [cls._encode_fallback(value_) for value_ in value]
 
-        elif isinstance(value, ( set, tuple )):
+        elif isinstance(value, (set, tuple)):
             value = list(value)
 
         elif isinstance(value, OrderedDict):
-            value = [ [ k, v ] for k, v in value.items() ]
+            value = [[k, v] for k, v in value.items()]
 
         else:
-            raise TypeError(f"Unable to decode {repr(value)} with type of '{type(value).__name__}'.")
+            raise TypeError(
+                f"Unable to decode {repr(value)} "
+                f"with type of '{type(value).__name__}'."
+            )
 
         return value
 
@@ -155,7 +156,7 @@ class RestorableMixin:
             type_ = cls.__additional_types__[type_]
 
         value = orjson.loads(value)        
-        if value is None or type_ in BUILTIN_TYPES:
+        if value is None or type_ in (str, int, float, bool, list, dict):
             return value
 
         return cast(value, type_)

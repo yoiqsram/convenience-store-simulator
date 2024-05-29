@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Union, TYPE_CHECKING
 
 from ..core import ReprMixin
-from ..core.restore import RestorableMixin, RestoreTypes
+from ..core.restore import RestorableMixin
 from ..context import GlobalContext, DAYS_IN_YEAR
 from ..enums import FamilyStatus, Gender
 
@@ -20,8 +20,8 @@ DEFAULT_CONFIG_LOCATIONS = None
 
 class Person(
         RestorableMixin, ReprMixin,
-        repr_attrs=( 'name', 'gender', 'status' )
-    ):
+        repr_attrs=('name', 'gender', 'status')
+        ):
     def __init__(
             self,
             name: str,
@@ -30,7 +30,7 @@ class Person(
             birth_date: datetime,
             birth_place_code: str = None,
             _id: str = None
-        ) -> None:
+            ) -> None:
         self.id = _id
         self.name = name
         self.gender = gender
@@ -59,7 +59,8 @@ class Person(
 
     @classmethod
     def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Person:
-        name, gender, status, birth_date, birth_place_code, _id = attrs['params']
+        name, gender, status, birth_date, birth_place_code, _id = \
+            attrs['params']
         obj = cls(
             name,
             getattr(Gender, gender),
@@ -76,7 +77,7 @@ class Person(
             config_path: Path = None,
             seed: int = None,
             rng: np.random.RandomState = None
-        ) -> str:
+            ) -> str:
         if rng is None:
             rng = np.random.RandomState(seed)
 
@@ -103,7 +104,7 @@ class Person(
             anonymous: bool = True,
             seed: int = None,
             rng: np.random.RandomState = None
-        ) -> Person:
+            ) -> Person:
         name = None
         if not anonymous:
             name = Person.generate_name(gender, seed=seed, rng=rng)

@@ -27,16 +27,19 @@ def add_run_parser(subparsers) -> None:
     parser.add_argument(
         '--interval-min',
         type=float,
-        help='Adjust simulator new minimum interval (seconds) only for the run.'
+        help='Adjust simulator new minimum interval (secs) only for the run.'
     )
     parser.add_argument(
         '--interval-max',
         type=float,
-        help='Adjust simulator new maximum interval (seconds) only for the run.'
+        help='Adjust simulator new maximum interval (secs) only for the run.'
     )
     parser.add_argument(
         '--max-datetime', '-M',
-        help='Max datetime for the run. It will not replace the simulation max datetime.'
+        help=(
+            'Max datetime for the run. '
+            'It will not replace the simulation max datetime.'
+        )
     )
     parser.add_argument(
         '--skip-step',
@@ -70,32 +73,41 @@ def run_simulator(
         sync: bool,
         workers: int,
         store_restore_files: List[str]
-    ) -> None:
+        ) -> None:
     _time = datetime.now()
     simulator_logger.info('Loading simulator state...')
     restore_file = GlobalContext.RESTORE_DIR / 'simulator.json'
-    simulator: Simulator = Simulator.restore(restore_file, store_restore_files=store_restore_files)
+    simulator: Simulator = Simulator.restore(
+        restore_file,
+        store_restore_files=store_restore_files
+    )
 
     simulator_logger.info(
         f"Succesfully loaded the simulator. "
         f'{(datetime.now() - _time).total_seconds():.1f}s'
     )
 
-    simulator_logger.info(f'Continue run simulator from the last state at {simulator.current_datetime()}.')
+    simulator_logger.info(
+        'Continue run simulator from the last state '
+        f'at {simulator.current_datetime()}.'
+    )
 
     if interval_min is not None:
         interval_max = None
         if interval_max is not None:
             interval_max = interval_max
-        simulator.interval = ( interval_min, interval_max )
+        simulator.interval = (interval_min, interval_max)
     elif interval is not None:
         simulator.interval = interval
 
     simulator.speed = speed
 
+    if max_datetime is None:
+        max_datetime = cast(max_datetime, datetime)
+
     simulator.run(
         sync=sync,
-        max_datetime=cast(max_datetime, datetime) if max_datetime is not None else None,
+        max_datetime=max_datetime,
         skip_step=skip_step,
         workers=workers
     )

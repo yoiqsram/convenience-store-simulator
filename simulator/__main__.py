@@ -1,10 +1,7 @@
 from datetime import datetime
 
 from .cli import parse_args, init_simulator, run_simulator
-from .core.utils import cast
-from .database import *
 from .logging import simulator_logger
-from .simulator import Simulator
 
 
 if __name__ == '__main__':
@@ -23,8 +20,12 @@ if __name__ == '__main__':
         )
 
     elif command == 'run':
+        store_ids = None
+        if args.store_ids is not None:
+            store_ids = args.store_ids.split(',')
+
         run_simulator(
-            max_datetime=cast(args.max_datetime, datetime) if args.max_datetime is not None else None,
+            max_datetime=args.max_datetime,
             speed=args.speed,
             interval=args.interval,
             interval_min=args.interval_min,
@@ -32,5 +33,5 @@ if __name__ == '__main__':
             skip_step=args.skip_step,
             sync=not args.no_sync,
             workers=args.workers,
-            store_restore_files=args.store_ids.split(',') if args.store_ids is not None else None
+            store_restore_files=store_ids
         )

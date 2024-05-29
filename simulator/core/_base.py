@@ -8,6 +8,10 @@ from .utils import cast
 
 _STEP_TYPE = Union[int, datetime]
 _INTERVAL_TYPE = Union[int, float, timedelta]
+_OPTIONAL_INTERVAL_TYPE = Union[
+    _INTERVAL_TYPE,
+    Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]
+]
 
 
 class IdentityMixin:
@@ -20,24 +24,30 @@ class IdentityMixin:
 
 
 class RandomGeneratorMixin:
-    def __init_rng__(self, seed: int = None, rng = None) -> None:
+    def __init_rng__(self, seed: int = None, rng=None) -> None:
         from numpy.random import RandomState
 
         self._rng = RandomState(seed) if rng is None else rng
 
     def dump_rng_state(self) -> Tuple[str, List[int], int, int, float]:
         state = self._rng.get_state()
-        return state[:1] + ( state[1].tolist(), ) + state[2:]
+        return state[:1] + (state[1].tolist(),) + state[2:]
 
-    def load_rng_state(self, state: Tuple[str, List[int], int, int, float]) -> None:
+    def load_rng_state(
+            self,
+            state: Tuple[str, List[int], int, int, float]
+            ) -> None:
         self._rng.set_state(state)
 
     def random_seed(
             self,
             size: int,
             maxlen: int = 6
-        ) -> List[int]:
-        return [ int(num) for num in self._rng.random(size) * int('1' + '0' * maxlen) ]
+            ) -> List[int]:
+        return [
+            int(num)
+            for num in self._rng.random(size) * int('1' + '0' * maxlen)
+        ]
 
 
 class ReprMixin:
@@ -56,7 +66,10 @@ class ReprMixin:
 
             kwargs[identifier] = attr
 
-        return f"{self.__class__.__name__}({', '.join([f'{k}={v}' for k, v in kwargs.items()])})"
+        return (
+            f"{self.__class__.__name__}"
+            f"({', '.join([f'{k}={v}' for k, v in kwargs.items()])})"
+        )
 
 
 class SuperclassMixin:
@@ -79,7 +92,7 @@ class StepMixin:
             initial_step: _STEP_TYPE,
             interval: _INTERVAL_TYPE,
             max_step: _STEP_TYPE = None
-        ) -> None:
+            ) -> None:
         self._step_count = 0
         self._initial_step = initial_step
         self._max_step = max_step
@@ -92,7 +105,7 @@ class StepMixin:
             self,
             a_step: _STEP_TYPE,
             b_step: _STEP_TYPE
-        ) -> _INTERVAL_TYPE:
+            ) -> _INTERVAL_TYPE:
         if isinstance(self._current_step, int) \
                 or isinstance(self._current_step, float):
             return b_step - a_step
@@ -104,7 +117,10 @@ class StepMixin:
             return (b_step - a_step).total_seconds()
 
         else:
-            raise ValueError(f"Faild to calculate interval between {repr(a_step)} and {repr(b_step)}.")
+            raise ValueError(
+                f"Faild to calculate interval between "
+                f"{repr(a_step)} and {repr(b_step)}."
+            )
 
     @property
     def interval(self) -> _INTERVAL_TYPE:
@@ -136,7 +152,11 @@ class StepMixin:
     def next_step(self) -> _STEP_TYPE:
         return self._next_step
 
-    def step(self, *args, **kwargs) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
+    def step(
+            self,
+            *args,
+            **kwargs
+            ) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
         self._step_count += 1
         current_step = self.next_step()
         if current_step is None:
@@ -147,15 +167,20 @@ class StepMixin:
                 and next_step <= current_step:
             raise ValueError(
                 'Next step should be higher than current step. '
-                f"Please check the 'get_next_step' method in {repr(self.__class__.__name__)} class. "
-                f"Next step is {repr(next_step)} and current step is {repr(current_step)}."
+                f"Please check the 'get_next_step' method in "
+                f"{repr(self.__class__.__name__)} class. "
+                f"Next step is {repr(next_step)} "
+                f"and current step is {repr(current_step)}."
             )
 
         self._current_step = current_step
         self._next_step = next_step
         return self._current_step, next_step
 
-    def get_next_step(self, current_step: _STEP_TYPE) -> Union[_STEP_TYPE, None]:
+    def get_next_step(
+            self,
+            current_step: _STEP_TYPE
+            ) -> Union[_STEP_TYPE, None]:
         next_step = current_step + self.interval
 
         if self._max_step is not None \
@@ -171,7 +196,7 @@ class IntegerStepMixin(StepMixin):
             initial_step: int,
             interval: int,
             max_step: int = None,
-        ) -> None:
+            ) -> None:
         super().__init_step__(
             cast(initial_step, int),
             cast(interval, int),
@@ -209,7 +234,7 @@ class FloatStepMixin(StepMixin):
             initial_step: float,
             interval: float,
             max_step: float = None,
-        ) -> None:
+            ) -> None:
         super().__init_step__(
             cast(initial_step, float),
             cast(interval, float),
@@ -247,7 +272,7 @@ class DatetimeStepMixin(StepMixin):
             initial_step: datetime,
             interval: _STEP_TYPE,
             max_step: datetime = None,
-        ) -> None:
+            ) -> None:
         super().__init_step__(
             cast(initial_step, datetime),
             cast(interval, timedelta),
@@ -326,10 +351,11 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
     def __init_step__(
             self,
             initial_step: datetime,
-            interval: Union[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]],
+            interval: _OPTIONAL_INTERVAL_TYPE,
             max_step: datetime = None,
-        ) -> None:
-        self._interval_min, self._interval_max = self._normalize_interval_range(interval)
+            ) -> None:
+        self._interval_min, self._interval_max = \
+            self._normalize_interval_range(interval)
 
         super().__init_step__(
             initial_step,
@@ -339,8 +365,8 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
 
     @staticmethod
     def _normalize_interval_range(
-            value: Union[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]]
-        ) -> Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]:
+            value: _OPTIONAL_INTERVAL_TYPE
+            ) -> Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]:
         if isinstance(value, float) \
                 or isinstance(value, int) \
                 or isinstance(value, timedelta):
@@ -355,13 +381,16 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
 
             if min_interval > max_interval:
                 raise ValueError(
-                    f'Minimum interval should be less than or equal to the maximum interval, '
-                    f'{min_interval.total_seconds()} is greater then {max_interval.total_seconds}.'
+                    f'Minimum interval should be less than '
+                    f'or equal to the maximum interval, '
+                    f'{min_interval.total_seconds()} '
+                    f'is greater then {max_interval.total_seconds}.'
                 )
 
         else:
             raise ValueError(
-                f"Value is '{value.__class__.__name__}' while it should be either 'int', 'float', 'timedelta' "
+                f"Value is '{value.__class__.__name__}' "
+                f"while it should be either 'int', 'float', 'timedelta' "
                 'or a tuple contains a couple values of minimum and maximum.'
             )
 
@@ -376,9 +405,10 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
     @interval.setter
     def interval(
             self,
-            value: Union[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]]
-        ) -> None:
-        self._interval_min, self._interval_max = self._normalize_interval_range(value)
+            value: _OPTIONAL_INTERVAL_TYPE
+            ) -> None:
+        self._interval_min, self._interval_max = \
+            self._normalize_interval_range(value)
 
     @property
     def interval_min(self) -> timedelta:

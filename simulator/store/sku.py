@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 class Product(
         ModelMixin, ReprMixin,
         model=ProductModel,
-        repr_attrs=( 'name', 'category', 'modifier' )
-    ):
+        repr_attrs=('name', 'category', 'modifier')
+        ):
     __instances__: Dict[str, Product] = {}
 
     def __init__(
@@ -28,7 +28,7 @@ class Product(
             associations: Dict[str, float] = None,
             demographic_modifiers: List[dict] = None,
             skus: List[SKU] = None
-        ) -> None:
+            ) -> None:
         self.name = name
         self.category = category
         self.modifier = modifier
@@ -42,7 +42,7 @@ class Product(
             demographic_modifiers = []
         self.demographic_modifiers = demographic_modifiers
 
-        super().__init_model__({ 'name': self.name })
+        super().__init_model__({'name': self.name})
 
         if skus is None:
             skus = []
@@ -54,7 +54,7 @@ class Product(
             self,
             person: Family,
             current_date: date
-        ) -> float:
+            ) -> float:
         multiplier = 1.0
 
         # Adjust modifier based on demographic
@@ -112,7 +112,10 @@ class Product(
                     name=product_name['name'],
                     category=category['name'],
                     modifier=product_name.get('modifier', 0.01),
-                    interval_days_need=product_name.get('interval_days_need', 30),
+                    interval_days_need=product_name.get(
+                        'interval_days_need',
+                        30
+                    ),
                 )
                 product.skus = [
                     SKU(
@@ -145,10 +148,14 @@ class Product(
 
                     product_name = association_products[i]['name']
                     associated_product_name = association_products[j]['name']
-                    cls.__instances__[product_name].associations[associated_product_name] = association_products[i]['value']
+                    product = cls.__instances__[product_name]
+                    product.associations[associated_product_name] = \
+                        association_products[i]['value']
 
         for demographic_modifier in item_config['demographic_modifiers']:
-            for product_name, value in demographic_modifier['products'].items():
+            for product_name, value in (
+                    demographic_modifier['products'].items()
+                    ):
                 cls.__instances__[product_name].demographic_modifiers.append({
                     'gender': demographic_modifier.get('gender'),
                     'age_min': demographic_modifier.get('age_min'),
@@ -160,8 +167,8 @@ class Product(
 class SKU(
         ModelMixin, ReprMixin,
         model=SKUModel,
-        repr_attrs=( 'name', 'brand', 'price', 'cost', 'pax')
-    ):
+        repr_attrs=('name', 'brand', 'price', 'cost', 'pax')
+        ):
     __instances__: Dict[str, SKU] = {}
 
     def __init__(
@@ -172,7 +179,7 @@ class SKU(
             price: float,
             cost: float,
             pax: int
-        ) -> None:
+            ) -> None:
         self.name = name
         self.brand = brand
         self.product = product
@@ -181,7 +188,7 @@ class SKU(
         self.pax = pax
 
         super().__init_model__(
-            unique_identifiers={ 'name': name },
+            unique_identifiers={'name': name},
             brand=brand,
             product=product.record.id,
             price=price,

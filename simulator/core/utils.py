@@ -5,13 +5,17 @@ from typing import Any, List
 
 def cast(_value: Any, _type: type) -> Any:
     if not isinstance(_type, type):
-        raise TypeError(f"Cast type must be a type, not {type(_type).__name__}.")
+        raise TypeError(
+            f"Cast type must be a type, not {type(_type).__name__}."
+        )
 
     elif isinstance(_value, _type):
         return _value
 
     elif _type is bool:
-        return _value.lower() == 'true' if isinstance(_value, str) else bool(_value)
+        if isinstance(_value, str):
+            return _value.lower() == 'true'
+        return bool(_value)
 
     elif _type in (date, datetime):
         if isinstance(_value, int):
@@ -24,16 +28,19 @@ def cast(_value: Any, _type: type) -> Any:
         return _value.date()
 
     elif _type is timedelta \
-            and isinstance(_value, ( int, float )):
-            return timedelta(seconds=_value)
+            and isinstance(_value, (int, float)):
+        return timedelta(seconds=_value)
 
     elif issubclass(_type, Enum):
         return getattr(_type, _value)
 
     try:
         return _type(_value)
-    except:
-        raise TypeError(f"Failed to cast value {repr(_value)} to type '{_type.__name__}'.")
+    except Exception:
+        raise TypeError(
+            f"Failed to cast value {repr(_value)} "
+            f"to type '{_type.__name__}'."
+        )
 
 
 def get_dict_value(
@@ -43,11 +50,13 @@ def get_dict_value(
         default: Any = None,
         none_values: List[str] = None,
         none_error: bool = False
-    ) -> Any:
+        ) -> Any:
     if default is not None \
             and type is not None \
             and not isinstance(default, type):
-        raise ValueError(f"Argument 'default' should have been '{type.__class__.__name__}' as type, not '{default.__class__.__name__}'.")
+        raise ValueError(
+            f"Argument 'default' should have been '{type.__class__.__name__}' "
+            f"as type, not '{default.__class__.__name__}'.")
 
     env_var = d.get(name, default)
 

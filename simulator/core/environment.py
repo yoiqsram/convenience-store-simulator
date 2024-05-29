@@ -7,15 +7,16 @@ from typing import Any, Dict, Iterable, Tuple, Union
 
 from ._base import (
     DatetimeStepMixin, RandomDatetimeStepMixin,
-    _STEP_TYPE, _INTERVAL_TYPE, cast
+    _STEP_TYPE, _INTERVAL_TYPE, _OPTIONAL_INTERVAL_TYPE,
+    cast
 )
 from .agent import Agent, MultiAgent
 
 
 class BaseEnvironment(
         MultiAgent,
-        repr_attrs=( 'n_agents', 'current_step' )
-    ):
+        repr_attrs=('n_agents', 'current_step')
+        ):
     def __init__(
             self,
             initial_step: _STEP_TYPE = 0,
@@ -24,7 +25,7 @@ class BaseEnvironment(
             skip_step: bool = False,
             agents: Iterable[Agent] = None,
             seed: int = None
-        ) -> None:
+            ) -> None:
         super().__init__(
             initial_step,
             interval,
@@ -46,7 +47,7 @@ class Environment(BaseEnvironment):
             max_step: Union[int, float] = None,
             agents: Iterable[Agent] = None,
             seed: int = None
-        ) -> None:
+            ) -> None:
         if isinstance(initial_step, float) \
                 or isinstance(interval, float):
             type_ = float
@@ -79,8 +80,8 @@ class Environment(BaseEnvironment):
 class DatetimeEnvironment(
         BaseEnvironment,
         DatetimeStepMixin,
-        repr_attrs=( 'n_agents', 'current_datetime', 'interval', 'speed' )
-    ):
+        repr_attrs=('n_agents', 'current_datetime', 'interval', 'speed')
+        ):
     def __init__(
             self,
             initial_datetime: datetime = None,
@@ -90,7 +91,7 @@ class DatetimeEnvironment(
             skip_step: bool = False,
             agents: Iterable[Agent] = None,
             seed: int = None
-        ) -> None:
+            ) -> None:
         if initial_datetime is None:
             initial_datetime = datetime.now()
 
@@ -112,13 +113,17 @@ class DatetimeEnvironment(
         if next_step is None:
             return
 
-        interval = (next_step - self.current_step()) if self.skip_step else self._interval
+        if self.skip_step:
+            interval = self._interval
+        else:
+            interval = (next_step - self.current_step())
         return interval.total_seconds() / self.speed
 
     def total_real_time_elapased(self) -> timedelta:
         if self._real_initial_datetime is None:
             raise ValueError(
-                'Environment has not been run or through at least one step yet.'
+                'Environment has not been run '
+                'or through at least one step yet.'
             )
 
         return datetime.now() - self._real_initial_datetime
@@ -134,7 +139,7 @@ class DatetimeEnvironment(
             sync: bool,
             *args,
             **kwargs
-        ) -> Tuple[datetime, Union[datetime, None]]:
+            ) -> Tuple[datetime, Union[datetime, None]]:
         real_start_datetime = datetime.now()
         current_datetime, next_datetime = self.step(*args, **kwargs)
 
@@ -143,11 +148,15 @@ class DatetimeEnvironment(
         if self.speed != 1.0:
             speed_adjusted_real_current_datetime = (
                 self._real_initial_datetime
-                + self.speed * (real_current_datetime - self._real_initial_datetime)
+                + self.speed * (
+                    real_current_datetime - self._real_initial_datetime
+                )
             )
         if sync and next_datetime is not None \
                 and next_datetime > speed_adjusted_real_current_datetime:
-            elapsed_seconds = (real_current_datetime - real_start_datetime).total_seconds()
+            elapsed_seconds = (
+                real_current_datetime - real_start_datetime
+                ).total_seconds()
             await_seconds = self.step_delay - elapsed_seconds
             if await_seconds > 0:
                 time.sleep(await_seconds)
@@ -161,7 +170,7 @@ class DatetimeEnvironment(
             skip_step: bool = None,
             *args,
             **kwargs
-        ) -> None:
+            ) -> None:
         if skip_step is not None:
             _skip_step = self.skip_step
             self.skip_step = skip_step
@@ -201,17 +210,17 @@ class DatetimeEnvironment(
 class RandomDatetimeEnvironment(
         DatetimeEnvironment,
         RandomDatetimeStepMixin
-    ):
+        ):
     def __init__(
             self,
             initial_datetime: datetime = None,
-            interval: Union[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]] = 1,
+            interval: _OPTIONAL_INTERVAL_TYPE = 1,
             speed: float = 1.0,
             max_datetime: datetime = None,
             skip_step: bool = False,
             agents: Iterable[Agent] = None,
             seed: int = None
-        ) -> None:
+            ) -> None:
         super().__init__(
             initial_datetime=initial_datetime,
             interval=interval,

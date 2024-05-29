@@ -180,15 +180,22 @@ class DatetimeEnvironment(
     @property
     def restore_attrs(self) -> Dict[str, Any]:
         attrs = super().restore_attrs
-        attrs['speed'] = self.speed
+        attrs['base_params'].append(self.speed)
         attrs['real_initial_datetime'] = self._real_initial_datetime
+        attrs['rng_state'] = self.dump_rng_state()
         return attrs
 
     def _pull_restore(self, attrs: Dict[str, Any]) -> None:
-        super()._pull_restore(attrs)
-
-        self.speed = attrs['speed']
+        (
+            self._initial_step,
+            self.interval,
+            self._max_step,
+            self._next_step,
+            self._skip_step,
+            self.speed
+        ) = attrs['base_params']
         self._real_initial_datetime = attrs['real_initial_datetime']
+        self.load_rng_state(attrs['rng_state'])
 
 
 class RandomDatetimeEnvironment(

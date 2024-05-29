@@ -27,7 +27,10 @@ def init_simulator(
         seed: Union[int, None],
         rewrite: bool
     ) -> Simulator:
-    if not rewrite and GlobalContext.CHECKPOINT_SESSION_PATH.exists():
+    restore_file = GlobalContext.RESTORE_DIR / 'simulator.json'
+    if not rewrite and restore_file.exists():
         raise FileExistsError()
 
-    return Simulator(seed=seed)
+    simulator = Simulator(seed=seed)
+    simulator.push_restore(restore_file)
+    return simulator

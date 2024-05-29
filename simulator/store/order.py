@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Iterable, List, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Tuple, TYPE_CHECKING
 
 from ..core import ReprMixin
+from ..core.restore import RestorableMixin, RestoreTypes
 from ..database import Database, OrderModel, OrderSKUModel
 from ..enums import AgeGroup, Gender, PaymentMethod, OrderStatus
 
@@ -14,27 +15,29 @@ if TYPE_CHECKING:
     from .employee import Employee
 
 
-class Order(ReprMixin):
-    __repr_attrs__ = ( 'items', 'payment_method' )
+class Order(
+        RestorableMixin, ReprMixin,
+        repr_attrs=( 'n_order_skus', 'status' )
+    ):
+    __additional_types__ = RestoreTypes(PaymentMethod, OrderStatus)
 
     def __init__(
             self,
-            buyer: Person,
             order_skus: List[Tuple[SKU, int]],
-            current_datetime: datetime
+            begin_datetime: datetime
         ) -> None:
         self._order_skus = order_skus
-        self.buyer = buyer
+        self.buyer: Person = None
         self.payment_method: PaymentMethod = None
 
         self._status = OrderStatus.COLLECTING
-        self.begin_datetime = current_datetime
+        self.begin_datetime = begin_datetime
         self.queue_datetime: datetime = None
         self.checkout_start_datetime: datetime = None
         self.checkout_end_datetime: datetime = None
         self.complete_datetime: datetime = None
 
-        self._order_record: Union[OrderModel, None] = None
+        self._order_record: OrderModel = None
 
     @property
     def status(self) -> OrderStatus:
@@ -44,7 +47,7 @@ class Order(ReprMixin):
     def n_order_skus(self) -> int:
         return len(self._order_skus)
 
-    def order_skus(self) -> Iterable[List[Tuple[SKU, int]]]:
+    def order_skus(self) -> Iterable[Tuple[SKU, int]]:
         for sku, quantity in self._order_skus:
             yield sku, quantity
 
@@ -112,3 +115,47 @@ class Order(ReprMixin):
             self._order_record.payment_method = self.payment_method.value
             self._order_record.complete_datetime = self.complete_datetime
             self._order_record.save()
+
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        return {
+            'order_skus': {
+                sku.name: quantity
+                for sku, quantity in self.order_skus
+            },
+            'status': self.status,
+            'payment_method': self.payment_method,
+            'timeline': [
+                self.begin_datetime,
+                self.queue_datetime,
+                self.checkout_start_datetime,
+                self.checkout_end_datetime,
+                self.complete_datetime
+            ],
+            'order_record_id': self._order_record.id
+        }
+
+    @classmethod
+    def _restore(cls, attrs: Dict[str, Any], **kwargs) -> Order:
+        order_skus = [
+            ( SKU.get(name), quantity )
+            for name, quantity in attrs['order_skus']
+        ]
+
+        obj = cls(
+            order_skus,
+            attrs['timeline'][0]
+        )
+
+        obj._status = attrs['status']
+        obj.payment_method = attrs['payment_method']
+        (
+            _,
+            obj.queue_datetime,
+            obj.checkout_start_datetime,
+            obj.checkout_end_datetime,
+            obj.complete_datetime
+        ) = attrs['timeline']
+
+        obj._order_record = OrderModel.get(OrderModel.id == attrs['order_record_id'])
+        return obj

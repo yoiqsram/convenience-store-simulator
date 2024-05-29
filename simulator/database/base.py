@@ -40,6 +40,7 @@ class ModelMixin:
     __model__: Type[BaseModel]
 
     def __init_subclass__(cls, model: Type[BaseModel], **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
         cls.__model__ = model
 
     def __init_model__(

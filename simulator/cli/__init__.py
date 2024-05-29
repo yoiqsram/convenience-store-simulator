@@ -1,7 +1,7 @@
 import argparse
 
 from .init import add_init_parser, init_simulator
-from .run import add_run_parser
+from .run import add_run_parser, run_simulator
 
 
 def parse_args() -> argparse.Namespace:

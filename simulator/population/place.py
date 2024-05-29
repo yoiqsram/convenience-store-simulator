@@ -1,63 +1,59 @@
 from __future__ import annotations
 
 import numpy as np
+import uuid
 from datetime import date, timedelta
-from typing import Dict, List, Generator, Iterable, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Generator, Iterable, Tuple
 
-from ..core import ReprMixin
+from ..core import ReprMixin, RandomGeneratorMixin
+from ..core.restore import RestorableMixin
 from ..context import GlobalContext, DAYS_IN_YEAR
 from ..database import ModelMixin, SubdistrictModel
-from .family import Family, FamilyStatus, Person, Gender
+from .family import Family, FamilyStatus, Gender
 
 
-def match_adults(adults: Iterable[Person]) -> Iterable[Tuple[Person, Person]]:
-    males: List[Person] = []
-    females: List[Person] = []
-    for adult in adults:
-        if adult.gender == Gender.MALE:
-            males.append(adult)
-        else:
-            females.append(adult)
-
-    total_matches = min(len(males), len(females))
-    return zip(males[:total_matches], females[:total_matches])
-
-
-class Place(ModelMixin, ReprMixin):
-    __model__ = SubdistrictModel
-    __repr_attrs__ = ( 'id', 'name', 'n_families', 'total_population' )
-
+class Place(
+        RestorableMixin, ModelMixin, RandomGeneratorMixin, ReprMixin,
+        model=SubdistrictModel,
+        repr_attrs=( 'name', 'n_families', 'total_population' )
+    ):
     def __init__(
             self,
-            id: str,
+            code: str,
             name: str,
             initial_date: date,
             initial_population: int,
             fertility_rate: float,
             life_expectancy: float,
             marry_age: float,
-            seed: int = None
+            seed: int = None,
+            rng: np.random.RandomState = None,
+            _families: List[Family] = None
         ) -> None:
-        self.id = id
+        self.code = code
         self.name = name
-        self.initial_population = initial_population
-        self.fertility_rate = fertility_rate
-        self.life_expectancy = life_expectancy
-        self.marry_age = marry_age
+        self.initial_population = int(initial_population)
+        self.fertility_rate = float(fertility_rate)
+        self.life_expectancy = float(life_expectancy)
+        self.marry_age = float(marry_age)
 
-        self._rng = np.random.RandomState(seed)
-        self._prefix_id_counts: Dict[str, int] = dict()
+        self._prefix_id_counts: Dict[str, int] = {}
         self.last_updated_date: date = initial_date
 
-        self.families: List[Family] = Family.bulk_generate(
-            int(self.initial_population / 3.0),
-            initial_date,
-            self,
-            rng=self._rng
-        )
+        super().__init_rng__(seed, rng)
+
+        self.families = _families
+        if _families is None:
+            self.families: List[Family] = Family.bulk_generate(
+                int(self.initial_population / 3.0),
+                initial_date,
+                self,
+                rng=self._rng
+            )
 
         super().__init_model__(
-            unique_identifiers={ 'code': self.id }
+            unique_identifiers={ 'code': self.code }
         )
 
     @property
@@ -103,7 +99,7 @@ class Place(ModelMixin, ReprMixin):
             )
             would_marries = self._rng.random(n_families) < (fertility_rate * 2.0)
 
-            unmarried_adults: List[Person] = []
+            unmarried_adults: List[Family] = []
             for family, max_members_, would_birth, new_born_male, die_age, would_die, marry_age, would_marry in zip(
                     self.families,
                     max_members,
@@ -149,7 +145,7 @@ class Place(ModelMixin, ReprMixin):
 
             # Marry the unmarried adults
             if len(unmarried_adults) > 0:
-                for male, female in match_adults(( adult for adult in unmarried_adults )):
+                for male, female in self.match_adults(( adult for adult in unmarried_adults )):
                     new_family = Family.from_marriage(male, female)
                     self.families.append(new_family)
 
@@ -160,7 +156,7 @@ class Place(ModelMixin, ReprMixin):
                 if family.n_members > 0
             ]
 
-    def register_birth(self, person: Person) -> None:
+    def register_birth(self, person: Family) -> None:
         prefix_id = (
             self.id[:6]
             + (str(person.birth_date.day) if person.gender == Gender.MALE else str(person.birth_date.day + 40))
@@ -173,6 +169,70 @@ class Place(ModelMixin, ReprMixin):
             self._prefix_id_counts[prefix_id] += 1
 
         person.id = prefix_id + str(self._prefix_id_counts[prefix_id]).rjust(4, '0')
+
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        return {
+            'code': self.code,
+            'name': self.name,
+            'initial_population': self.initial_population,
+            'fertility_rate': self.fertility_rate,
+            'life_expectancy': self.life_expectancy,
+            'marry_age': self.marry_age,
+            'prefix_id_counts': self._prefix_id_counts,
+            'last_updated_date': self.last_updated_date,
+            'rng_state': self.dump_rng_state()
+        }
+
+    def _push_restore(self, file: Path = None) -> None:
+        base_dir = file.parent
+        for family in self.families:
+            if hasattr(family, 'restore_file'):
+                family.push_restore()
+            else:
+                family_dir = base_dir / f'Family_{uuid.uuid4()}'
+                family_dir.mkdir(exist_ok=True)
+                family.push_restore(family_dir / 'family.json')
+
+        super()._push_restore(file)
+
+    @classmethod
+    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Place:
+        base_dir = file.parent
+
+        families = [
+            Family.restore(base_dir / str(family_restore_file))
+            for family_restore_file in base_dir.rglob('Family_*/family.json')
+        ]
+
+        obj = cls(
+            attrs['code'],
+            attrs['name'],
+            attrs['initial_date'],
+            attrs['initial_population'],
+            attrs['fertility_rate'],
+            attrs['life_expectancy'],
+            attrs['marry_age'],
+            None,
+            families
+        )
+
+        obj._prefix_id_counts = attrs['_prefix_id_counts']
+        obj.last_updated_date = attrs['last_updated_date']
+        return obj
+
+    @staticmethod
+    def match_adults(adults: Iterable[Family]) -> Iterable[Tuple[Family, Family]]:
+        males: List[Family] = []
+        females: List[Family] = []
+        for adult in adults:
+            if adult.gender == Gender.MALE:
+                males.append(adult)
+            else:
+                females.append(adult)
+
+        total_matches = min(len(males), len(females))
+        return zip(males[:total_matches], females[:total_matches])
 
     @classmethod
     def generate(
@@ -255,12 +315,13 @@ class Place(ModelMixin, ReprMixin):
                 .iterate()
             )
             yield cls(
-                id=subdistrict.code,
+                code=subdistrict.code,
                 name=subdistrict.name,
                 initial_date=initial_date,
                 initial_population=initial_population_,
                 fertility_rate=fertility_rate_,
                 life_expectancy=life_expectancy_,
                 marry_age=marry_age_,
-                seed=seed
+                seed=seed,
+                rng=rng
             )

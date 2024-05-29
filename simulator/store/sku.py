@@ -9,13 +9,15 @@ from ..context import GlobalContext
 from ..database import ModelMixin, SKUModel, ProductModel
 
 if TYPE_CHECKING:
-    from ..population.family import Person
+    from ..population.family import Family
 
 
-class Product(ModelMixin, ReprMixin):
-    __model__ = ProductModel
-    __repr_attrs__ = ( 'name', 'category', 'modifier' )
-    __products__: Dict[str, Product] = dict()
+class Product(
+        ModelMixin, ReprMixin,
+        model=ProductModel,
+        repr_attrs=( 'name', 'category', 'modifier' )
+    ):
+    __instances__: Dict[str, Product] = {}
 
     def __init__(
             self,
@@ -33,7 +35,7 @@ class Product(ModelMixin, ReprMixin):
         self.interval_days_need = interval_days_need
 
         if associations is None:
-            associations = dict()
+            associations = {}
         self.associations = associations
 
         if demographic_modifiers is None:
@@ -46,9 +48,11 @@ class Product(ModelMixin, ReprMixin):
             skus = []
         self.skus = skus
 
+        self.__class__.__instances__[name] = self
+
     def adjusted_modifier(
             self,
-            person: Person,
+            person: Family,
             current_date: date
         ) -> float:
         multiplier = 1.0
@@ -83,21 +87,21 @@ class Product(ModelMixin, ReprMixin):
 
     @classmethod
     def all(cls) -> List[Product]:
-        if len(cls.__products__) == 0:
+        if len(cls.__instances__) == 0:
             cls.load()
 
-        return list(cls.__products__.values())
+        return list(cls.__instances__.values())
 
     @classmethod
     def get(cls, name: str) -> Product:
-        if len(cls.__products__) == 0:
+        if len(cls.__instances__) == 0:
             cls.load()
 
-        return cls.__products__[name]
+        return cls.__instances__[name]
 
     @classmethod
     def clear(cls) -> None:
-        cls.__products__ = dict()
+        cls.__instances__ = {}
 
     @classmethod
     def load(cls, config_path: Path = None) -> None:
@@ -122,8 +126,6 @@ class Product(ModelMixin, ReprMixin):
                     for sku in product_name['skus']
                 ]
 
-                cls.__products__[product_name['name']] = product
-
         for association in item_config['associations']:
             association_products = [
                 {
@@ -131,7 +133,7 @@ class Product(ModelMixin, ReprMixin):
                     'value': value
                 }
                 for name, value in association['products'].items()
-                if name in cls.__products__
+                if name in cls.__instances__
             ]
             if len(association_products) < 2:
                 continue
@@ -143,11 +145,11 @@ class Product(ModelMixin, ReprMixin):
 
                     product_name = association_products[i]['name']
                     associated_product_name = association_products[j]['name']
-                    cls.__products__[product_name].associations[associated_product_name] = association_products[i]['value']
+                    cls.__instances__[product_name].associations[associated_product_name] = association_products[i]['value']
 
         for demographic_modifier in item_config['demographic_modifiers']:
             for product_name, value in demographic_modifier['products'].items():
-                cls.__products__[product_name].demographic_modifiers.append({
+                cls.__instances__[product_name].demographic_modifiers.append({
                     'gender': demographic_modifier.get('gender'),
                     'age_min': demographic_modifier.get('age_min'),
                     'age_max': demographic_modifier.get('age_max'),
@@ -155,8 +157,12 @@ class Product(ModelMixin, ReprMixin):
                 })
 
 
-class SKU(ModelMixin):
-    __model__ = SKUModel
+class SKU(
+        ModelMixin, ReprMixin,
+        model=SKUModel,
+        repr_attrs=( 'name', 'brand', 'price', 'cost', 'pax')
+    ):
+    __instances__: Dict[str, SKU] = {}
 
     def __init__(
             self,
@@ -183,5 +189,18 @@ class SKU(ModelMixin):
             pax=pax
         )
 
+        self.__instances__[name] = self
+
     def update(self, current_datetime: datetime) -> None:
         self.created_datetime = current_datetime
+
+    @classmethod
+    def get(cls, name: str) -> Product:
+        if len(Product.__instances__) == 0:
+            Product.load()
+
+        return cls.__instances__[name]
+
+    @classmethod
+    def clear(cls) -> None:
+        cls.__instances__ = {}

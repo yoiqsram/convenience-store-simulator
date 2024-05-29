@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import numpy as np
+import uuid
 from collections import deque
 from datetime import date, datetime, timedelta
-from typing import Deque, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Deque, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
 
 from ..context import GlobalContext
 from ..core import MultiAgent, DatetimeStepMixin
-from ..database import Database, ModelMixin, StoreModel, SubdistrictModel, EmployeeShiftScheduleModel
+from ..database import (
+    Database, ModelMixin, StoreModel,
+    SubdistrictModel, EmployeeShiftScheduleModel
+)
 from ..enums import EmployeeShift, EmployeeStatus
 from ..logging import store_logger
 from .customer import Customer
@@ -18,36 +23,40 @@ if TYPE_CHECKING:
     from ..population.place import Place
 
 
-class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
-    __repr_attrs__ = ( 'place_name', 'n_employees', 'total_market_population', 'current_datetime' )
-    __model__ = StoreModel
-
+class Store(
+        MultiAgent,
+        DatetimeStepMixin, ModelMixin,
+        model=StoreModel,
+        repr_attrs=( 'place_name', 'n_employees', 'total_market_population', 'current_datetime' )
+    ):
     def __init__(
             self,
             place: Place,
-            initial_datetime: datetime,
-            interval: float,
+            initial_datetime: datetime = None,
+            interval: float = None,
             skip_step: bool = False,
-            max_cashiers: int = None,
+            initial_employees: int = None,
             max_employees: int = None,
+            max_cashiers: int = None,
             max_queue: int = 15,
-            seed: int = None
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> None:
         super().__init__(
             initial_datetime,
             interval,
             skip_step=skip_step,
-            seed=seed
+            seed=seed,
+            rng=rng
         )
 
-        # Add potential customers from the place
         self.place = place
-        self.update_market_population(initial_datetime)
 
         # Add initial employees
         self._employees: List[Employee] = []
         self.max_employees = max_employees if max_employees is not None else GlobalContext.STORE_INITIAL_EMPLOYEES
-        for _ in range(GlobalContext.STORE_INITIAL_EMPLOYEES):
+        initial_employees = initial_employees if initial_employees is not None else GlobalContext.STORE_INITIAL_EMPLOYEES
+        for _ in range(initial_employees):
             employee = Employee.generate(
                 self.place,
                 initial_datetime,
@@ -62,8 +71,8 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
             EmployeeShift.SECOND: (GlobalContext.STORE_OPEN_HOUR + GlobalContext.STORE_CLOSE_HOUR) / 2
         }
         self.long_shift_hours = timedelta(hours=(GlobalContext.STORE_CLOSE_HOUR - GlobalContext.STORE_OPEN_HOUR) / 2)
-        self.employee_shift_schedules: Dict[int, EmployeeShift] = {
-            employee: EmployeeShift.NONE
+        self.employee_shift_schedules: Dict[Employee, EmployeeShift] = {
+            employee.record_id: EmployeeShift.NONE
             for employee in self._employees
         }
         self.schedule_shifts(shift_month=date(initial_datetime.year, initial_datetime.month, 1))
@@ -136,6 +145,7 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
 
     def remove_employee(self, employee: Employee) -> None:
         try:
+            employee.delete_restore()
             self._employees.remove(employee)
         except:
             pass
@@ -205,7 +215,7 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
         old_market_population = {
             agent.family.id: agent
             for agent in self.agents()
-            if isinstance(agent, Customer)
+            if type(agent) is Customer
         }
         old_family_ids = set(old_market_population.keys())
 
@@ -217,18 +227,16 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
 
         family_ids_to_be_removed = old_family_ids - new_family_ids
         for family_id in family_ids_to_be_removed:
+            old_market_population[family_id].delete_restore()
             self.remove_agent(old_market_population[family_id])
 
         family_ids_to_be_added = new_family_ids - old_family_ids
-        for family_id, seed in zip(
-                family_ids_to_be_added,
-                self.random_seed(len(family_ids_to_be_added))
-            ):
+        for family_id in family_ids_to_be_added:
             customer = Customer(
                 new_market_families[family_id],
                 current_datetime,
                 self.interval,
-                seed=seed
+                rng=self._rng
             )
             self.add_agent(customer)
 
@@ -280,3 +288,108 @@ class Store(MultiAgent, DatetimeStepMixin, ModelMixin):
 
                 shift_datetime = next_shift_datetime
                 next_shift_datetime += timedelta(days=1)
+
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        attrs = super().restore_attrs
+        attrs['max_params'] = [
+            self.max_employees,
+            self.max_cashiers,
+            self._order_queue.maxlen
+        ]
+
+        attrs['employee_info'] = [
+            {
+                str(employee.restore_file.name): [
+                    self.employee_shift_schedules[employee.record_id].name,
+                    employee in self._cashiers
+                ]
+            }
+            for employee in self.employees()
+        ]
+
+        attrs['created_datetime'] = self.created_datetime
+        attrs['total_orders'] = self.total_orders
+        return attrs
+
+    def _push_restore(self, file: Path = None) -> None:
+        base_dir = file.parent
+
+        if hasattr(self.place, 'restore_file'):
+            self.place.push_restore()
+        else:
+            place_dir = base_dir / 'Place'
+            place_dir.mkdir(exist_ok=True)
+            self.place.push_restore(place_dir / f'place.json')
+
+        for agent in self.agents():
+            if hasattr(agent, 'current_order') \
+                    and agent.current_order is not None:
+                if hasattr(agent.current_order, 'restore_file'):
+                    agent.current_order.push_restore()
+                else:
+                    order_dir = base_dir / 'Order'
+                    order_dir.mkdir(exists_ok=True)
+                    agent.current_order.push_restore(order_dir / f'{uuid.uuid4()}.json')
+
+            if hasattr(agent, 'restore_file'):
+                agent.push_restore()
+            elif type(agent) is Employee:
+                employee_dir = base_dir / 'Employee' / f'Employee_{uuid.uuid4()}'
+                employee_dir.mkdir(parents=True, exist_ok=True)
+                agent.push_restore(employee_dir / 'employee.json')
+            elif type(agent) is Customer:
+                family_dir = agent.family.restore_file.parent
+                family_dir.mkdir(parents=True, exist_ok=True)
+                agent.push_restore(family_dir / f'Customer_{uuid.uuid4()}.json')
+
+        super()._push_restore(file)
+
+    @classmethod
+    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Store:
+        base_dir = file.parent
+
+        initial_step, interval, max_step, next_step, skip_step = attrs['base_params']
+        max_employees, max_cashiers, max_queue = attrs['max_params']
+        place = Place.restore(base_dir / 'Place' / 'place.json')
+        obj = cls(
+            place,
+            initial_datetime=initial_step,
+            interval=interval,
+            skip_step=attrs['skip_step'],
+            initial_employees=0,
+            max_employees=max_employees,
+            max_cashiers=max_cashiers,
+            max_queue=max_queue
+        )
+        obj._max_step = max_step
+        obj._next_step = next_step
+        obj._skip_step = skip_step
+
+        employee_dir = base_dir / 'Employee'
+        for employee_restore_file in employee_dir.glob('Employee_*/employee.json'):
+            employee_restore_file = str(employee_restore_file)
+            employee = Employee.restore(employee_dir / employee_restore_file)
+            obj._employees.append(employee)
+            obj.add_agent(employee)
+
+            shift, is_cashier = attrs['employee_info'][employee_restore_file]
+            obj.employee_shift_schedules[employee] = getattr(EmployeeShift, shift)
+            if is_cashier:
+                obj._cashiers.append(employee)
+
+        customer_dir = base_dir / 'Customer'
+        for customer_restore_file in customer_dir.glob('*.json'):
+            customer_restore_file = str(customer_restore_file)
+            customer = Customer.restore(customer_dir / customer_restore_file)
+            obj.add_agent(customer)
+
+        order_dir = base_dir / 'Order'
+        for order_restore_file in order_dir.glob('*.json'):
+            order_restore_file = str(order_restore_file)
+            order = Order.restore(order_dir / order_restore_file)
+            obj.add_order_queue(order)
+
+        obj.created_datetime = attrs['created_datetime']
+        obj.total_orders = attrs['total_orders']
+        return obj

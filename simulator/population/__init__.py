@@ -1,1 +1,2 @@
-from .place import Family, Person, Place
+from .person import Person
+from .place import Family, Place

@@ -20,10 +20,10 @@ class IdentityMixin:
 
 
 class RandomGeneratorMixin:
-    def __init_rng__(self, seed: int = None) -> None:
+    def __init_rng__(self, seed: int = None, rng = None) -> None:
         from numpy.random import RandomState
 
-        self._rng = RandomState(seed)
+        self._rng = RandomState(seed) if rng is None else rng
 
     def dump_rng_state(self) -> Tuple[str, List[int], int, int, float]:
         state = self._rng.get_state()

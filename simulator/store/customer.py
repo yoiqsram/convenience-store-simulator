@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import numpy as np
-from collections import OrderedDict
+import uuid
 from datetime import date, datetime, timedelta
-from typing import Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
 
 from ..context import GlobalContext, DAYS_IN_YEAR
-from ..core import Agent, DatetimeStepMixin
+from ..core import Agent, DatetimeStepMixin, IdentityMixin
+from ..core.restore import RestoreTypes
 from ..enums import AgeGroup, FamilyStatus, OrderStatus, PaymentMethod
-from ..population import Family, Person
+from ..population import Family, Family
 from .order import Order
 from .sku import Product, SKU
 
@@ -16,59 +18,42 @@ if TYPE_CHECKING:
     from .store import Store
 
 
-def random_payment_method_config(
-        rng: np.random.RandomState
-    ) -> Tuple[Dict[PaymentMethod, float], Dict[PaymentMethod, float]]:
-    payment_method_weight = {
-        PaymentMethod.CASH: max(0, rng.normal(0.8, 0.05)),
-        PaymentMethod.CREDIT_CARD: max(0, rng.normal(0.01, 0.01)),
-        PaymentMethod.DEBIT_CARD: max(0, rng.normal(0.05, 0.025)),
-        PaymentMethod.DIGITAL_CASH: max(0, rng.normal(0.05, 0.025))
-    }
-    total_payment_method_weight = np.sum(list(payment_method_weight.values()))
-    payment_method_prob: Dict[PaymentMethod, float] = {
-        payment_method: weight / total_payment_method_weight
-        for payment_method, weight in payment_method_weight.items()
-    }
-    payment_method_time: Dict[PaymentMethod, float] = {
-        PaymentMethod.CASH: np.clip(rng.normal(5.0, 1.0), 2.0, 15.0),
-        PaymentMethod.CREDIT_CARD: np.clip(rng.normal(15.0, 3.0), 10.0, 45.0),
-        PaymentMethod.DEBIT_CARD: np.clip(rng.normal(20.0, 3.0), 10.0, 45.0),
-        PaymentMethod.DIGITAL_CASH: np.clip(rng.normal(10.0, 2.0), 5.0, 30.0),
-    }
-    return payment_method_prob, payment_method_time
-
-
-class Customer(Agent, DatetimeStepMixin):
-    __repr_attrs__ = ( 'id', 'n_members', 'current_datetime', 'current_order' )
+class Customer(
+        Agent,
+        DatetimeStepMixin, IdentityMixin,
+        repr_attrs=( 'n_members', 'current_datetime', 'current_order' )
+    ):
+    __additional_types__ = RestoreTypes(PaymentMethod)
 
     def __init__(
             self,
             family: Family,
             initial_datetime: datetime,
             interval: float,
-            seed: int = None
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> None:
         super().__init__(
             initial_datetime,
             interval,
-            seed=seed
+            seed=seed,
+            rng=rng
         )
 
         self.parent: Store
         self.family = family
 
-        self.product_need_days_left: OrderedDict[Product, int] = OrderedDict([
-            (
-                product,
-                int(self._rng.randint(0, product.interval_days_need))
-            )
+        self.product_need_days_left: Dict[Product, int] = {
+            product: int(self._rng.randint(0, product.interval_days_need))
             for product in Product.all()
-        ])
-        self.payment_method_prob, self.payment_method_time = random_payment_method_config(self._rng)
+        }
+        self.last_product_need_updated_date: date = initial_datetime.date()
+
+        self.payment_method_prob, self.payment_method_time = self.random_payment_method_config()
 
         self.current_order: Union[Order, None] = None
-        self._last_product_need_updated_date: date = initial_datetime.date()
+
+        self.__init_id__()
 
     @property
     def n_members(self) -> int:
@@ -89,7 +74,6 @@ class Customer(Agent, DatetimeStepMixin):
 
             # Randomize buyer representative and get the family needs
             buyer = self.random_buyer()
-            payment_method = self.random_payment_method()
             needed_products = self.get_needed_products()
 
             # Update product needs
@@ -98,9 +82,9 @@ class Customer(Agent, DatetimeStepMixin):
                     self.product_need_days_left[product] = self._rng.poisson(
                         product.interval_days_need
                     )
-                elif self._last_product_need_updated_date:
-                    self.product_need_days_left[product] =- (current_date - self._last_product_need_updated_date).days
-            self._last_product_need_updated_date = current_date
+                elif self.last_product_need_updated_date:
+                    self.product_need_days_left[product] =- (current_date - self.last_product_need_updated_date).days
+            self.last_product_need_updated_date = current_date
 
             # Calculate conversion from needs to purchase from the store, then order
             order_products = self.get_order_products(needed_products, buyer, current_date)
@@ -111,14 +95,17 @@ class Customer(Agent, DatetimeStepMixin):
                     or not self.parent.is_open() \
                     or self.parent.is_full_queue():
                 self._next_step = self.calculate_next_order_datetime(current_date)
+                
                 return current_datetime, self._next_step
 
             # Collecting order products in the store
             order_skus = self.get_order_skus(order_products)
-            self.current_order = Order(buyer, order_skus, current_datetime)
+            self.current_order = Order(order_skus, current_datetime)
+            self.current_order.buyer = buyer
 
             collection_time = self.calculate_collection_time(self.current_order)
             self._next_step = current_datetime + timedelta(seconds=collection_time)
+            
             return current_datetime, self._next_step
 
         # Queuing order
@@ -132,6 +119,7 @@ class Customer(Agent, DatetimeStepMixin):
 
             payment_time = self.calculate_payment_time(self.current_order)
             self._next_step = current_datetime + timedelta(seconds=payment_time)
+            
             return current_datetime, self._next_step
 
         # Complete the payment
@@ -142,9 +130,30 @@ class Customer(Agent, DatetimeStepMixin):
         elif self.current_order.status == OrderStatus.DONE:
             self.current_order = None
             self._next_step = self.calculate_next_order_datetime(current_date)
+            
             return current_datetime, self._next_step
 
         return current_datetime, next_datetime
+
+    def random_payment_method_config(self) -> Tuple[Dict[PaymentMethod, float], Dict[PaymentMethod, float]]:
+        payment_method_weight = {
+            PaymentMethod.CASH: max(0, self._rng.normal(0.8, 0.05)),
+            PaymentMethod.CREDIT_CARD: max(0, self._rng.normal(0.01, 0.01)),
+            PaymentMethod.DEBIT_CARD: max(0, self._rng.normal(0.05, 0.025)),
+            PaymentMethod.DIGITAL_CASH: max(0, self._rng.normal(0.05, 0.025))
+        }
+        total_payment_method_weight = np.sum(list(payment_method_weight.values()))
+        payment_method_prob: Dict[PaymentMethod, float] = {
+            payment_method: float(weight / total_payment_method_weight)
+            for payment_method, weight in payment_method_weight.items()
+        }
+        payment_method_time: Dict[PaymentMethod, float] = {
+            PaymentMethod.CASH: float(np.clip(self._rng.normal(5.0, 1.0), 2.0, 15.0)),
+            PaymentMethod.CREDIT_CARD: float(np.clip(self._rng.normal(15.0, 3.0), 10.0, 45.0)),
+            PaymentMethod.DEBIT_CARD: float(np.clip(self._rng.normal(20.0, 3.0), 10.0, 45.0)),
+            PaymentMethod.DIGITAL_CASH: float(np.clip(self._rng.normal(10.0, 2.0), 5.0, 30.0))
+        }
+        return payment_method_prob, payment_method_time
 
     def calculate_next_order_datetime(self, current_date: date) -> datetime:
         order_datetime = (
@@ -171,7 +180,7 @@ class Customer(Agent, DatetimeStepMixin):
 
         return order_datetime
 
-    def random_buyer(self) -> Person:
+    def random_buyer(self) -> Family:
         family_weight = {
             FamilyStatus.SINGLE: 1,
             FamilyStatus.PARENT: 8,
@@ -205,7 +214,7 @@ class Customer(Agent, DatetimeStepMixin):
     def get_order_products(
             self,
             products: List[Product],
-            buyer: Person,
+            buyer: Family,
             current_date: date
         ) -> List[Product]:
         order_products = [
@@ -266,6 +275,69 @@ class Customer(Agent, DatetimeStepMixin):
         payment_time = self.payment_method_time[order.payment_method]
         return payment_time
 
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        attrs = super().restore_attrs
+        attrs['product_need_days_left'] = {
+            product.name: days_left
+            for product, days_left in self.product_need_days_left.items()
+        }
+        attrs['last_product_need_updated_date'] = self.last_product_need_updated_date
+
+        attrs['payment_method_params'] = {
+            payment_method.name: (
+                self.payment_method_prob[payment_method],
+                self.payment_method_time[payment_method]
+            )
+            for payment_method in self.payment_method_prob.keys()
+        }
+
+        if self.current_order is not None:
+            attrs['order_restore_file'] = self.current_order.restore_file.relative_to(GlobalContext.BASE_DIR)
+
+        return attrs
+
+    def _push_restore(self, file: Path = None) -> None:
+        base_dir = file.parents[1]
+        if self.current_order is not None:
+            if hasattr(self.current_order, 'restore_file'):
+                self.current_order.push_restore()
+            else:
+                order_dir = base_dir / 'Order'
+                order_dir.mkdir(parents=True, exist_ok=True)
+                self.current_order.push_restore(order_dir / f'{uuid.uuid4()}.json')
+
+        super()._push_restore(file)
+
+    @classmethod
+    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Customer:
+        family = Family.restore(file.parent / 'family.json')
+
+        initial_step, interval, max_step, next_step = attrs['base_params']
+        obj = cls(
+            family,
+            initial_step,
+            interval
+        )
+        obj._max_step = max_step
+        obj._next_step = next_step
+
+        obj.product_need_days_left = {
+            Product.get(product_name): days_left
+            for product_name, days_left in attrs['product_need_days_left'].items()
+        }
+        obj.last_product_need_updated_date = attrs['last_product_need_updated_date']
+
+        obj.payment_method_prob = {}
+        obj.payment_method_time = {}
+        for payment_method_name, ( prob, time ) in attrs['payment_method_params'].items():
+            obj.payment_method_prob[getattr(PaymentMethod, payment_method_name)] = prob
+            obj.payment_method_time[getattr(PaymentMethod, payment_method_name)] = time
+
+        if 'order_restore_file' in attrs:
+            obj.current_order = Order.restore(file.parents[1] / 'Order' / attrs['order_restore_file'])
+        return obj
+
     @classmethod
     def from_families(
             cls,
@@ -273,11 +345,9 @@ class Customer(Agent, DatetimeStepMixin):
             seed: int = None,
             rng: np.random.RandomState = None
         ) -> Iterable[Customer]:
-        if rng is None:
-            rng = np.random.RandomState(seed)
-
         for family in families:
             yield cls(
                 family,
-                seed=int(rng.random() * 1_000_000)
+                seed=seed,
+                rng=rng
             )

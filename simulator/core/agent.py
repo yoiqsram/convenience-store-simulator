@@ -22,12 +22,13 @@ class Agent(
             initial_step: _STEP_TYPE = 0,
             interval: _INTERVAL_TYPE = 1,
             max_step: _STEP_TYPE = None,
-            seed: int = None
+            seed: int = None,
+            rng = None
         ) -> None:
         self.parent: Union[MultiAgent, BaseEnvironment, None] = None
 
         super().__init_step__(initial_step, interval, max_step)
-        super().__init_rng__(seed)
+        super().__init_rng__(seed, rng)
 
     def other_agents(self) -> Iterable[Agent]:
         if self.parent is None:
@@ -60,19 +61,21 @@ class Agent(
     @property
     def restore_attrs(self) -> Dict[str, Any]:
         return {
-            'initial_step': self._initial_step,
-            'interval': self._interval,
-            'max_step': self._max_step,
-            'next_step': self._next_step,
-            'rng_state': self.dump_rng_state()
+            'base_params': [
+                self._initial_step,
+                self._interval,
+                self._max_step,
+                self._next_step
+            ]
         }
 
     def _pull_restore(self, attrs: Dict[str, Any]) -> None:
-        self._initial_step = attrs['initial_step']
-        self.interval = attrs['interval']
-        self._max_step = attrs['max_step']
-        self._next_step = attrs['next_step']
-        self.load_rng_state(attrs['rng_state'])
+        (
+            self._initial_step,
+            self.interval,
+            self._max_step,
+            self._next_step
+        ) = attrs['base_params']
 
 
 class MultiAgentStepMixin(StepMixin):
@@ -179,36 +182,23 @@ class MultiAgent(
             max_step: _STEP_TYPE = None,
             skip_step: bool = False,
             agents: Iterable[Agent] = None,
-            seed: int = None
+            seed: int = None,
+            rng = None
         ) -> None:
-        super().__init__(initial_step, interval, max_step, seed)
+        super().__init__(initial_step, interval, max_step, seed, rng)
         super().__init_agents__(agents, skip_step)
-
-    def add_agent(self, agent: Agent) -> None:
-        super().add_agent(agent)
-
-    def remove_agent(self, agent: Agent) -> None:
-        super().remove_agent(agent)
 
     @property
     def restore_attrs(self) -> Dict[str, Any]:
         attrs = super().restore_attrs
-        attrs['agent_restore_files'] = [
-            {
-                'type': type(agent).__name__,
-                'restore_file': agent.restore_file
-            }
-            for agent in self.agents()
-        ]
-        attrs['skip_step'] = self._skip_step
+        attrs['base_params'].append(self._skip_step)
         return attrs
 
     def _pull_restore(self, attrs: Dict[str, Any]) -> None:
-        super()._pull_restore(attrs)
-
-        self._skip_step = attrs['skip_step']
-        self._agents: List[Agent] = [
-            Agent.__subclasses__[agent_restore_data['type']]
-                .restore(agent_restore_data['restore_file'])
-            for agent_restore_data in attrs['agent_restore_files']
-        ]
+        (
+            self._initial_step,
+            self.interval,
+            self._max_step,
+            self._next_step,
+            self._skip_step
+        ) = attrs['base_params']

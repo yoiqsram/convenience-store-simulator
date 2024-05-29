@@ -4,7 +4,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, List, Union
 
-from .utils import get_dict_value
+from .core.utils import get_dict_value
 
 DAYS_IN_YEAR = 365.2425
 
@@ -29,17 +29,18 @@ class GlobalContext:
     BASE_DIR: Path = get_environment_variable('SIMULATOR_BASE_DIR', Path, Path(__file__).resolve().parents[1])
     CONFIG_DIR: Path = get_environment_variable('SIMULATOR_CONFIG_DIR', Path, BASE_DIR / 'config')
     DATA_DIR: Path = get_environment_variable('SIMULATOR_DATA_DIR', Path, BASE_DIR / 'data')
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     SQLITE_DB_PATH: Path = get_environment_variable('SQLITE_DB_PATH', Path, DATA_DIR / 'stores.db')
+
+    RESTORE_DIR: Path = get_environment_variable('RESTORE_DIR', Path, DATA_DIR / 'restore')
+    RESTORE_DIR.mkdir(parents=True, exist_ok=True)
 
     POSTGRES_DB_NAME: str = get_environment_variable('POSTGRES_DB_NAME', default='store')
     POSTGRES_DB_USERNAME: Union[str, None] = get_environment_variable('POSTGRES_DB_USERNAME')
     POSTGRES_DB_PASSWORD: Union[str, None] = get_environment_variable('POSTGRES_DB_PASSWORD')
     POSTGRES_DB_HOST: Union[str, None] = get_environment_variable('POSTGRES_DB_HOST')
     POSTGRES_DB_PORT: Union[str, None] = get_environment_variable('POSTGRES_DB_PORT')
-
-    CHECKPOINT_SESSION_PATH: Path = get_environment_variable('SIMULATOR_CHECKPOINT_SESSION_PATH', Path, DATA_DIR / 'checkpoint.pkl')
-    CHECKPOINT_INTERVAL: int = get_environment_variable('SIMULATOR_CHECKPOINT_INTERVAL', int, 86400 * 30)
 
     INITIAL_DATE: date = get_environment_variable('SIMULATOR_INITIAL_DATE', date, date.today())
     SIMULATOR_SPEED: float = get_environment_variable('SIMULATOR_SPEED', float, 1.0)

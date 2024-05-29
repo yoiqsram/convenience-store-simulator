@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import numpy as np
+import uuid
 from datetime import date, datetime, timedelta
-from typing import Tuple, Union, TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Dict, Tuple, Union, TYPE_CHECKING
 
-from ..core import Agent
+from ..context import GlobalContext
+from ..core import Agent, DatetimeStepMixin
+from ..core.restore import RestoreTypes
 from ..database import EmployeeModel, EmployeeAttendanceModel, ModelMixin
 from ..enums import (
     AgeGroup, Gender, FamilyStatus, OrderStatus,
@@ -15,13 +19,16 @@ from ..population import Person, Place
 from .order import Order
 
 if TYPE_CHECKING:
-    from ..simulator import Simulator
     from .store import Store
 
 
-class Employee(Agent, ModelMixin):
-    __model__ = EmployeeModel
-    __repr_attrs__ = ( 'id', 'name', 'status', 'shift' )
+class Employee(
+        Agent,
+        DatetimeStepMixin, ModelMixin,
+        model=EmployeeModel,
+        repr_attrs=( 'name', 'status', 'shift' )
+    ):
+    __additional_types__ = RestoreTypes(EmployeeStatus, EmployeeShift)
 
     def __init__(
             self,
@@ -32,23 +39,23 @@ class Employee(Agent, ModelMixin):
             counting_skill_rate: float = None,
             content_rate: float = None,
             discipline_rate: float = None,
-            seed: int = None
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> None:
         super().__init__(
             initial_datetime,
             interval,
-            seed=seed
+            seed=seed,
+            rng=rng
         )
 
         self.parent: Store
         self.person = person
-        self.age_recognition_rate = age_recognition_rate
-        self.counting_skill_rate = counting_skill_rate
-        self.content_rate = content_rate
-        self.discipline_rate = discipline_rate
+        self.age_recognition_rate = float(age_recognition_rate)
+        self.counting_skill_rate = float(counting_skill_rate)
+        self.content_rate = float(content_rate)
+        self.discipline_rate = float(discipline_rate)
         self.status = EmployeeStatus.OFF
-
-        self.current_order: Union[Order, None] = None
 
         self.shift: EmployeeShift = EmployeeShift.NONE
         self.schedule_shift_start_datetime: datetime = None
@@ -56,12 +63,14 @@ class Employee(Agent, ModelMixin):
         self.today_shift_start_datetime: datetime = None
         self.today_shift_end_datetime: datetime = None
 
+        self.current_order: Union[Order, None] = None
+
         super().__init_model__(
             unique_identifiers={ 'person_id': self.person.id },
             name=person.name,
             gender=person.gender.name,
             birth_date=person.birth_date,
-            birth_place=person.birth_place.record.id
+            birth_place_code=person.birth_place_code
         )
 
     @property
@@ -81,6 +90,7 @@ class Employee(Agent, ModelMixin):
                 current_datetime.date()
             )
             self._next_step = self.schedule_shift_start_datetime
+            
             return current_datetime, self._next_step
 
         # Begin shift
@@ -125,6 +135,7 @@ class Employee(Agent, ModelMixin):
                 )
                 + timedelta(days=1, hours=6) # Wake up time
             )
+            
             return current_datetime, self._next_step
 
         # Wait for order from queue and assign it
@@ -155,6 +166,7 @@ class Employee(Agent, ModelMixin):
 
             processing_time = self.calculate_checkout_time(self.current_order)
             self._next_step = current_datetime + timedelta(seconds=processing_time)
+            
             return current_datetime, self._next_step
 
         # Wait for order payment
@@ -164,6 +176,7 @@ class Employee(Agent, ModelMixin):
         # Complete order
         elif self.current_order.status == OrderStatus.PAID:
             self.current_order.submit(current_datetime)
+            self.current_order.delete_restore()
             self.current_order = None
 
             self.status = EmployeeStatus.IDLE
@@ -257,6 +270,82 @@ class Employee(Agent, ModelMixin):
 
         return AgeGroup.OLDER_ADULT
 
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        attrs = super().restore_attrs
+        attrs['skill_params'] = [
+            self.age_recognition_rate,
+            self.counting_skill_rate,
+            self.content_rate,
+            self.discipline_rate
+        ]
+        attrs['status'] = self.status
+        attrs['shift'] = self.shift
+        attrs['shift_datetimes'] = [
+            self.schedule_shift_start_datetime,
+            self.schedule_shift_end_datetime,
+            self.today_shift_start_datetime,
+            self.today_shift_end_datetime
+        ]
+
+        attrs['order_restore_file'] = None
+        if self.current_order is not None:
+            attrs['order_restore_file'] = self.current_order.restore_file.name
+
+        return attrs
+
+    def _push_restore(self, file: Path = None) -> None:
+        if hasattr(self.person, 'restore_file'):
+            self.person.push_restore()
+        else:
+            self.person.push_restore(file.parent / f'Person_{uuid.uuid4()}.json')
+
+        if self.current_order is not None:
+            if hasattr(self.current_order, 'restore_file'):
+                self.current_order.push_restore()
+            else:
+                order_dir = file.parents[2] / 'Order'
+                order_dir.mkdir(parents=True, exist_ok=True)
+                self.current_order.push_restore(order_dir / f'{uuid.uuid4()}.json')
+
+        super()._push_restore(file)
+
+    @classmethod
+    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Employee:
+        initial_step, interval, max_step, next_step = attrs['base_params']
+        age_recognition_rate, counting_skill_rate, content_rate, discipline_rate = \
+            attrs['skill_params']
+
+        for person_restore_file in file.parent.rglob('Person_*.json'):
+            person_restore_file = str(person_restore_file)
+            person = Person.restore(file.parent / person_restore_file)
+
+        obj = cls(
+            person,
+            initial_step,
+            interval,
+            age_recognition_rate,
+            counting_skill_rate,
+            content_rate,
+            discipline_rate,
+        )
+        obj._max_step = max_step
+        obj._next_step = next_step
+
+        obj.status = attrs['status']
+        obj.shift = attrs['shift']
+
+        (
+            obj.schedule_shift_start_datetime,
+            obj.schedule_shift_end_datetime,
+            obj.today_shift_start_datetime,
+            obj.today_shift_end_datetime
+        ) = attrs['shift_datetimes']
+
+        if attrs['order_rerstore_file'] is not None:
+            obj.current_order = Order.restore(file.parents[2] / 'Order' / attrs['order_rerstore_file'])
+        return obj
+
     @classmethod
     def generate(
             cls,
@@ -322,10 +411,12 @@ class Employee(Agent, ModelMixin):
             age=age,
             status=FamilyStatus.SINGLE,
             current_date=current_datetime.date(),
-            birth_place=place,
+            birth_place_code=place.code,
             anonymous=False,
-            seed=rng.get_state()[1][0]
+            seed=seed,
+            rng=rng
         )
+        person.id = str(uuid.uuid4())
         return cls(
             person,
             current_datetime,
@@ -333,7 +424,9 @@ class Employee(Agent, ModelMixin):
             age_recognition_rate=age_recognition_rate,
             counting_skill_rate=counting_skill_rate,
             content_rate=content_rate,
-            discipline_rate=discipline_rate
+            discipline_rate=discipline_rate,
+            seed=seed,
+            rng=rng
         )
 
     @classmethod
@@ -353,9 +446,6 @@ class Employee(Agent, ModelMixin):
             seed: int = None,
             rng: np.random.RandomState = None,
         ) -> Employee:
-        if rng is None:
-            rng = np.random.RandomState(seed)
-
         return [
             cls.generate(
                 current_date,
@@ -368,6 +458,7 @@ class Employee(Agent, ModelMixin):
                 content_rate_scale,
                 discipline_rate_loc,
                 discipline_rate_scale,
+                seed=seed,
                 rng=rng
             )
             for _ in range(n)

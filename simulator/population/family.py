@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import numpy as np
+import uuid
 from datetime import date, datetime
-from typing import Iterable, List, Tuple, Union, TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
 
-from ..core import IdentityMixin, ReprMixin
+from ..core import ReprMixin, IdentityMixin
+from ..core.restore import RestorableMixin
 from ..context import GlobalContext
 from ..enums import AgeGroup, FamilyStatus, Gender
 from .person import Person
@@ -13,13 +16,15 @@ if TYPE_CHECKING:
     from .place import Place
 
 
-class Family(IdentityMixin, ReprMixin):
-    __repr_attrs__ = ( 'n_members', )
-
+class Family(
+        RestorableMixin, ReprMixin, IdentityMixin,
+        repr_attrs=( 'n_members', 'spending_rate' )
+    ):
     def __init__(
             self,
             members: Iterable[Person],
-            spending_rate: float
+            spending_rate: float,
+            _id: str = None
         ) -> None:
         if len(members) == 0:
             raise ValueError()
@@ -27,9 +32,9 @@ class Family(IdentityMixin, ReprMixin):
         for member in self.members:
             member.family = self
 
-        self.spending_rate = spending_rate
+        self.spending_rate = float(spending_rate)
 
-        super().__init_id__()
+        self.__init_id__(_id)
 
     @property
     def n_members(self) -> int:
@@ -67,19 +72,12 @@ class Family(IdentityMixin, ReprMixin):
             for member in self.members
         ])
 
-    def get(self, person_id: int) -> Person:
-        for member in self.members:
-            if member.id == person_id:
-                return member
-
-        raise IndexError()
-
-    def add(self, person: Person) -> None:
-        if person.family is not None:
+    def add(self, member: Person) -> None:
+        if member.family is not None:
             raise ValueError()
 
-        self.members.append(person)
-        person.family = self
+        self.members.append(member)
+        member.family = self
 
     def remove(self, member: Person) -> None:
         self.members.remove(member)
@@ -87,26 +85,22 @@ class Family(IdentityMixin, ReprMixin):
 
     def birth(
             self,
-            place: Place,
+            place_code: str,
             current_date: date,
             gender: Gender = None,
             anonymous: bool = True,
             seed: int = None,
             rng: np.random.RandomState = None
         ) -> None:
-        if rng is None:
-            rng = np.random.RandomState(seed)
-
-        if gender is None:
-            gender = Gender.MALE if rng.random() < 0.5 else Gender.FEMALE
-
-        name = Person.generate_name(gender) if not anonymous else None
-        baby = Person(
-            name=name,
+        baby = Person.generate(
             gender=gender,
+            age=0.0,
             status=FamilyStatus.CHILD,
-            birth_date=current_date,
-            birth_place=place
+            current_date=current_date,
+            birth_place_code=place_code,
+            anonymous=anonymous,
+            seed=seed,
+            rng=rng
         )
         self.add(baby)
 
@@ -124,6 +118,33 @@ class Family(IdentityMixin, ReprMixin):
             self.spending_rate
         )
         return new_family
+
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        return {
+            'params': [ self.id, self.spending_rate ]
+        }
+
+    def _push_restore(self, file: Path = None) -> None:
+        base_dir = file.parent
+
+        for person in self.members:
+            if hasattr(person, 'restore_file'):
+                person.push_restore()
+            else:
+                person.push_restore(base_dir / f'Person_{uuid.uuid4()}.json')
+
+        super()._push_restore(file)
+
+    @classmethod
+    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Family:
+        base_dir = file.parent
+        members = [
+            Person.restore(base_dir / person_restore_file)
+            for person_restore_file in base_dir.rglob('Person_*.json')
+        ]
+        obj = cls(members, *attrs['params'])
+        return obj
 
     @classmethod
     def random_max_n_members(
@@ -226,7 +247,7 @@ class Family(IdentityMixin, ReprMixin):
                 age=age,
                 status=FamilyStatus.SINGLE,
                 current_date=current_date,
-                birth_place=place,
+                birth_place_code=place.code,
                 rng=rng
             )
             members.append(single)
@@ -246,7 +267,7 @@ class Family(IdentityMixin, ReprMixin):
                     age=father_age,
                     status=FamilyStatus.PARENT,
                     current_date=current_date,
-                    birth_place=place,
+                    birth_place_code=place.code,
                     rng=rng
                 )
                 members.append(father)
@@ -258,7 +279,7 @@ class Family(IdentityMixin, ReprMixin):
                     age=mother_age,
                     status=FamilyStatus.PARENT,
                     current_date=current_date,
-                    birth_place=place,
+                    birth_place_code=place.code,
                     rng=rng
                 )
                 members.append(mother)
@@ -274,7 +295,7 @@ class Family(IdentityMixin, ReprMixin):
                     age=parent_age,
                     status=FamilyStatus.PARENT,
                     current_date=current_date,
-                    birth_place=place,
+                    birth_place_code=place.code,
                     rng=rng
                 )
                 members.append(single_parent)
@@ -293,7 +314,7 @@ class Family(IdentityMixin, ReprMixin):
                     age=child_age,
                     status=FamilyStatus.CHILD,
                     current_date=current_date,
-                    birth_place=place,
+                    birth_place_code=place.code,
                     rng=rng
                 )
                 members.append(child)

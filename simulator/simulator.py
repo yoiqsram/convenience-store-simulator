@@ -1,6 +1,8 @@
-import numpy as np
+from __future__ import annotations
+
 from datetime import datetime, timedelta
-from typing import Iterable, List, Tuple
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Tuple
 
 from .core import RandomDatetimeEnvironment
 from .context import GlobalContext, DAYS_IN_YEAR
@@ -10,9 +12,10 @@ from .population import Place
 from .store import Store
 
 
-class Simulator(RandomDatetimeEnvironment):
-    __repr_attrs__ = ( 'n_stores', 'total_market_population', 'current_datetime' )
-
+class Simulator(
+        RandomDatetimeEnvironment,
+        repr_attrs=( 'n_stores', 'total_market_population', 'current_datetime' )
+    ):
     def __init__(
             self,
             initial_datetime: datetime = None,
@@ -25,6 +28,8 @@ class Simulator(RandomDatetimeEnvironment):
             store_growth_rate: float = None,
             seed: int = None
         ) -> None:
+        self.store_growth_rate = store_growth_rate if store_growth_rate is not None else GlobalContext.STORE_GROWTH_RATE
+
         if initial_datetime is None:
             initial_datetime = datetime(
                 GlobalContext.INITIAL_DATE.year,
@@ -50,12 +55,10 @@ class Simulator(RandomDatetimeEnvironment):
             seed=seed
         )
 
-        self.store_growth_rate = store_growth_rate if store_growth_rate is not None else GlobalContext.STORE_GROWTH_RATE
-
         # Create simulator database if not available
-        if StoreModel.table_exists() \
-                and StoreModel.select().count() > 1:
-            raise FileExistsError('Database is already exists.')
+        if StoreModel.table_exists():
+            if StoreModel.select().count() > 1:
+                raise FileExistsError('Database is already exists.')
 
         else:
             _time = datetime.now()
@@ -64,7 +67,14 @@ class Simulator(RandomDatetimeEnvironment):
             create_database(initial_datetime)
             simulator_logger.info(f'Simulator database is ready. {(datetime.now() - _time).total_seconds():.1f}s')
 
+            import shutil
+            shutil.copy(database.database, str(database.database) + '.backup')
+
         # Generate stores
+        initial_stores = initial_stores if initial_stores is not None else GlobalContext.INITIAL_STORES
+        if initial_stores == 0:
+            return
+
         _time = datetime.now()
         simulator_logger.info('Generating stores...')
         for store in self.generate_stores(
@@ -73,6 +83,7 @@ class Simulator(RandomDatetimeEnvironment):
                 self.current_datetime(),
                 GlobalContext.INITIAL_STORES_RANGE_DAYS
             ):
+            store.update_market_population(self.current_datetime())
             self.add_agent(store)
             simulator_logger.debug(f"New store '{store.place_name}' with market population size {store.total_market_population()} has been added. It will be built on '{store.initial_date}'.")
         simulator_logger.info(f'Generated {self.n_stores} stores. {(datetime.now() - _time).total_seconds():.1f}s')
@@ -96,28 +107,28 @@ class Simulator(RandomDatetimeEnvironment):
             initial_datetime: datetime,
             range_days: int = 0
         ) -> List[Store]:
-        seeds = [ int(num) for num in (self._rng.random(n) * 1_000_000) ]
         stores = []
-        for place, seed, delay_days in zip(
+        for place, delay_days in zip(
                 Place.generate(
                     n,
                     initial_datetime.date(),
                     initial_population=market_population_expected,
                     rng=self._rng
                 ),
-                seeds,
                 self._rng.choice(range_days + 1, n)
             ):
             initial_datetime_ = (
                 datetime(initial_datetime.year, initial_datetime.month, initial_datetime.day)
                 + timedelta(days=int(delay_days))
             )
-            stores.append(Store(
+            store = Store(
                 place,
                 initial_datetime_,
                 self.interval,
-                seed=seed
-            ))
+                rng=self._rng
+            )
+            stores.append(store)
+
         return stores
 
     def step(self):
@@ -130,7 +141,7 @@ class Simulator(RandomDatetimeEnvironment):
         # @ 1 day - Daily update possibility of store growth
         if current_datetime.day != past_datetime.day:
             for random in self._rng.random(n_stores):
-                if random > (1 - np.power(1 + self.store_growth_rate, 1 / DAYS_IN_YEAR)):
+                if random > self.store_growth_rate / DAYS_IN_YEAR:
                     continue
 
                 try:
@@ -169,7 +180,7 @@ class Simulator(RandomDatetimeEnvironment):
                     + self.speed * (real_current_datetime - self._real_initial_datetime)
                 )
             behind_seconds = (speed_adjusted_real_current_datetime - current_datetime).total_seconds()
-            if behind_seconds >= self._interval.total_seconds():
+            if behind_seconds >= self.interval.total_seconds():
                 simulator_logger.info(simulator_log_format(
                     'Simulation is behind the',
                     'real datetime' if self.speed == 1.0
@@ -198,4 +209,63 @@ class Simulator(RandomDatetimeEnvironment):
                     dt=current_datetime
                 ))
 
+        self.push_restore()
         return current_datetime, next_datetime
+
+
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        attrs = super().restore_attrs
+        attrs['store_growth_rate'] = self.store_growth_rate
+        return attrs
+
+    def _push_restore(self, file: Path = None) -> None:
+        _time = datetime.now()
+        simulator_logger.info("Simulator is being backup...")
+
+        for store in self.stores():
+            if hasattr(store, 'restore_file'):
+                store.push_restore()
+            else:
+                store_dir = file.parent / f'Store_{store.place.code}'
+                store_dir.mkdir(exist_ok=True)
+                store.push_restore(store_dir / f'store.json')
+
+        super()._push_restore(file)
+
+        simulator_logger.info(simulator_log_format(
+            f"Succesfully backup the simulator in '{file}'.",
+            f'{(datetime.now() - _time).total_seconds():.1f}s',
+            dt=self.current_datetime()
+        ))
+
+    @classmethod
+    def _restore(
+            cls,
+            attrs: Dict[str, Any],
+            file: Path,
+            store_restore_files: List[str],
+            **kwargs
+        ) -> Simulator:
+        base_dir = file.parent
+
+        initial_step, interval, max_step, next_step, skip_step, speed = attrs['base_params']
+        obj = cls(
+            initial_step,
+            interval,
+            speed,
+            max_step,
+            skip_step,
+            0,
+            0,
+            attrs['store_growth_rate']
+        )
+        obj._next_step = next_step
+        obj._real_initial_datetime = attrs['real_initial_datetime']
+
+        for store_restore_file in base_dir.rglob('Store_*/store.json'):
+            store = Store.restore(base_dir / str(store_restore_file))
+            obj._agents.append(store)
+
+        obj.load_rng_state(attrs['rng_state'])
+        return obj

@@ -4,41 +4,39 @@ import numpy as np
 import yaml
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Union, TYPE_CHECKING
+from typing import Any, Dict, Union, TYPE_CHECKING
 
 from ..core import ReprMixin
+from ..core.restore import RestorableMixin, RestoreTypes
 from ..context import GlobalContext, DAYS_IN_YEAR
 from ..enums import FamilyStatus, Gender
 
 if TYPE_CHECKING:
     from .family import Family
-    from .place import Place
 
 DEFAULT_CONFIG_NAMES = None
 DEFAULT_CONFIG_LOCATIONS = None
 
 
-class Person(ReprMixin):
-    __repr_attrs__ = ( 'id', 'name', 'gender', 'status' )
-
+class Person(
+        RestorableMixin, ReprMixin,
+        repr_attrs=( 'name', 'gender', 'status' )
+    ):
     def __init__(
             self,
             name: str,
             gender: Gender,
             status: FamilyStatus,
             birth_date: datetime,
-            birth_place: Place = None
+            birth_place_code: str = None,
+            _id: str = None
         ) -> None:
-        self.id = None
+        self.id = _id
         self.name = name
         self.gender = gender
         self.status = status
         self.birth_date = birth_date
-        self.birth_place = birth_place
-        self.birth_place.register_birth(self)
-
-        self.min_purchasing_power = 0.0
-        self.max_purchasing_power = 0.0
+        self.birth_place_code = birth_place_code
 
         self.family: Union[Family, None] = None
 
@@ -46,24 +44,41 @@ class Person(ReprMixin):
         age = (current_date - self.birth_date).days / DAYS_IN_YEAR
         return age
 
-    def purchasing_power(self, current_date: Union[datetime, date]) -> float:
-        if self.max_purchasing_power == 0.0:
-            return 0.0
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        return {
+            'params': [
+                self.name,
+                self.gender.name,
+                self.status.name,
+                self.birth_date,
+                self.birth_place_code,
+                self.id
+            ]
+        }
 
-        career_progress = (
-            self.min_purchasing_power
-            / self.max_purchasing_power
-            / (1.0 + 10.0 * np.exp(-0.25 * (self.age(current_date) - 18.0) / 20.0))
+    @classmethod
+    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Person:
+        name, gender, status, birth_date, birth_place_code, _id = attrs['params']
+        obj = cls(
+            name,
+            getattr(Gender, gender),
+            getattr(FamilyStatus, status),
+            birth_date,
+            birth_place_code,
+            _id
         )
-        return career_progress * self.max_purchasing_power
+        return obj
 
     @staticmethod
     def generate_name(
             gender: Gender,
             config_path: Path = None,
-            seed: int = None
+            seed: int = None,
+            rng: np.random.RandomState = None
         ) -> str:
-        rng = np.random.RandomState(seed)
+        if rng is None:
+            rng = np.random.RandomState(seed)
 
         config = None
         if config_path is None:
@@ -79,25 +94,25 @@ class Person(ReprMixin):
 
     @classmethod
     def generate(
-            self,
+            cls,
             gender: Gender,
             age: float,
             status: FamilyStatus,
             current_date: date,
-            birth_place: Place,
+            birth_place_code: str,
             anonymous: bool = True,
             seed: int = None,
             rng: np.random.RandomState = None
         ) -> Person:
-        if rng is None:
-            rng = np.random.RandomState(seed)
+        name = None
+        if not anonymous:
+            name = Person.generate_name(gender, seed=seed, rng=rng)
 
-        name = Person.generate_name(gender, seed=int(rng.random() * 1_000_000)) if not anonymous else None
         birth_date = current_date - timedelta(days=age * DAYS_IN_YEAR)
         return Person(
-            name=name,
-            gender=gender,
-            status=status,
-            birth_date=birth_date,
-            birth_place=birth_place
+            name,
+            gender,
+            status,
+            birth_date,
+            birth_place_code
         )

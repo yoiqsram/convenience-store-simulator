@@ -28,6 +28,7 @@ MODELS: List[BaseModel] = [
     StoreModel
 ]
 
+
 def create_database(created_datetime: datetime = None) -> Database:
     if created_datetime is None:
         created_datetime = datetime.now()

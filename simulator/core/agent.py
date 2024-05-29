@@ -1,26 +1,31 @@
 from __future__ import annotations
 
-import abc
-from typing import List, Iterable, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
 
-from ._base import IdentityMixin, RandomGeneratorMixin, ReprMixin, StepMixin, _STEP_TYPE, _INTERVAL_TYPE
+from ._base import (
+    RandomGeneratorMixin, ReprMixin, SuperclassMixin, StepMixin,
+    _STEP_TYPE, _INTERVAL_TYPE
+)
+from .restore import RestorableMixin
 
 if TYPE_CHECKING:
     from .environment import BaseEnvironment
 
 
-class Agent(IdentityMixin, StepMixin, RandomGeneratorMixin, ReprMixin, metaclass=abc.ABCMeta):
-    __repr_attrs__ = ( 'id', )
-
+class Agent(
+        RestorableMixin, SuperclassMixin,
+        StepMixin, RandomGeneratorMixin, ReprMixin,
+        repr_attrs=( 'current_step', )
+    ):
     def __init__(
             self,
-            initial_step: _STEP_TYPE,
-            interval: _INTERVAL_TYPE,
+            initial_step: _STEP_TYPE = 0,
+            interval: _INTERVAL_TYPE = 1,
             max_step: _STEP_TYPE = None,
-            seed: int = None) -> None:
+            seed: int = None
+        ) -> None:
         self.parent: Union[MultiAgent, BaseEnvironment, None] = None
 
-        super().__init_id__()
         super().__init_step__(initial_step, interval, max_step)
         super().__init_rng__(seed)
 
@@ -51,6 +56,23 @@ class Agent(IdentityMixin, StepMixin, RandomGeneratorMixin, ReprMixin, metaclass
             self._current_step = current_step
 
         return current_step, next_step
+
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        return {
+            'initial_step': self._initial_step,
+            'interval': self._interval,
+            'max_step': self._max_step,
+            'next_step': self._next_step,
+            'rng_state': self.dump_rng_state()
+        }
+
+    def _pull_restore(self, attrs: Dict[str, Any]) -> None:
+        self._initial_step = attrs['initial_step']
+        self.interval = attrs['interval']
+        self._max_step = attrs['max_step']
+        self._next_step = attrs['next_step']
+        self.load_rng_state(attrs['rng_state'])
 
 
 class MultiAgentStepMixin(StepMixin):
@@ -85,9 +107,6 @@ class MultiAgentStepMixin(StepMixin):
             yield agent
 
     def add_agent(self, agent: Agent) -> None:
-        if agent in self._agents:
-            raise IndexError(f"Agent is already in the index.")
-
         self._agents.append(agent)
         agent.parent = self
         if isinstance(agent, MultiAgentStepMixin):
@@ -148,11 +167,15 @@ class MultiAgentStepMixin(StepMixin):
         return super().step(*args, **kwargs)
 
 
-class MultiAgent(Agent, MultiAgentStepMixin):
+class MultiAgent(
+        Agent,
+        MultiAgentStepMixin,
+        repr_attrs=( 'n_agents', 'current_step' )
+    ):
     def __init__(
             self,
-            initial_step: _STEP_TYPE,
-            interval: _INTERVAL_TYPE,
+            initial_step: _STEP_TYPE = 0,
+            interval: _INTERVAL_TYPE = 1,
             max_step: _STEP_TYPE = None,
             skip_step: bool = False,
             agents: Iterable[Agent] = None,
@@ -160,3 +183,32 @@ class MultiAgent(Agent, MultiAgentStepMixin):
         ) -> None:
         super().__init__(initial_step, interval, max_step, seed)
         super().__init_agents__(agents, skip_step)
+
+    def add_agent(self, agent: Agent) -> None:
+        super().add_agent(agent)
+
+    def remove_agent(self, agent: Agent) -> None:
+        super().remove_agent(agent)
+
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        attrs = super().restore_attrs
+        attrs['agent_restore_files'] = [
+            {
+                'type': type(agent).__name__,
+                'restore_file': agent.restore_file
+            }
+            for agent in self.agents()
+        ]
+        attrs['skip_step'] = self._skip_step
+        return attrs
+
+    def _pull_restore(self, attrs: Dict[str, Any]) -> None:
+        super()._pull_restore(attrs)
+
+        self._skip_step = attrs['skip_step']
+        self._agents: List[Agent] = [
+            Agent.__subclasses__[agent_restore_data['type']]
+                .restore(agent_restore_data['restore_file'])
+            for agent_restore_data in attrs['agent_restore_files']
+        ]

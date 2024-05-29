@@ -1,36 +1,41 @@
 from __future__ import annotations
 
-import abc
 import time
+from abc import abstractmethod
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Iterable, Tuple, Union
+from typing import Any, Dict, Iterable, Tuple, Union
 
 from ._base import (
-    RandomGeneratorMixin, ReprMixin, DatetimeStepMixin, RandomDatetimeStepMixin,
+    DatetimeStepMixin, RandomDatetimeStepMixin,
     _STEP_TYPE, _INTERVAL_TYPE, cast
 )
-from .agent import Agent, MultiAgentStepMixin
+from .agent import Agent, MultiAgent
 
 
-class BaseEnvironment(MultiAgentStepMixin, RandomGeneratorMixin, ReprMixin, metaclass=abc.ABCMeta):
-    __repr_attrs__ = ( 'n_agents', 'current_step' )
-
+class BaseEnvironment(
+        MultiAgent,
+        repr_attrs=( 'n_agents', 'current_step' )
+    ):
     def __init__(
             self,
-            initial_step: _STEP_TYPE,
-            interval: _INTERVAL_TYPE,
+            initial_step: _STEP_TYPE = 0,
+            interval: _INTERVAL_TYPE = 1,
             max_step: _STEP_TYPE = None,
             skip_step: bool = False,
             agents: Iterable[Agent] = None,
             seed: int = None
         ) -> None:
-        super().__init_rng__(seed)
-        super().__init_step__(initial_step, interval, max_step)
-        super().__init_agents__(agents, skip_step)
+        super().__init__(
+            initial_step,
+            interval,
+            max_step,
+            skip_step,
+            agents,
+            seed
+        )
 
-    @abc.abstractmethod
-    def run(self, interval: _INTERVAL_TYPE = None, *args, **kwargs) -> None: ...
+    @abstractmethod
+    def run(self, workers: int = 0, *args, **kwargs) -> None: ...
 
 
 class Environment(BaseEnvironment):
@@ -71,19 +76,24 @@ class Environment(BaseEnvironment):
             _, next_step = self.step(*args, **kwargs)
 
 
-class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
-    __repr_attrs__ = ( 'n_agents', 'current_datetime' )
-
+class DatetimeEnvironment(
+        BaseEnvironment,
+        DatetimeStepMixin,
+        repr_attrs=( 'n_agents', 'current_datetime', 'interval', 'speed' )
+    ):
     def __init__(
             self,
-            initial_datetime: datetime,
-            interval: _INTERVAL_TYPE,
+            initial_datetime: datetime = None,
+            interval: _INTERVAL_TYPE = 1,
             speed: float = 1.0,
             max_datetime: datetime = None,
             skip_step: bool = False,
             agents: Iterable[Agent] = None,
             seed: int = None
         ) -> None:
+        if initial_datetime is None:
+            initial_datetime = datetime.now()
+
         super().__init__(
             initial_step=initial_datetime,
             interval=interval,
@@ -167,12 +177,28 @@ class DatetimeEnvironment(BaseEnvironment, DatetimeStepMixin, ReprMixin):
         if skip_step is not None:
             self.skip_step = _skip_step
 
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        attrs = super().restore_attrs
+        attrs['speed'] = self.speed
+        attrs['real_initial_datetime'] = self._real_initial_datetime
+        return attrs
 
-class RandomDatetimeEnvironment(DatetimeEnvironment, RandomDatetimeStepMixin):
+    def _pull_restore(self, attrs: Dict[str, Any]) -> None:
+        super()._pull_restore(attrs)
+
+        self.speed = attrs['speed']
+        self._real_initial_datetime = attrs['real_initial_datetime']
+
+
+class RandomDatetimeEnvironment(
+        DatetimeEnvironment,
+        RandomDatetimeStepMixin
+    ):
     def __init__(
             self,
-            initial_datetime: datetime,
-            interval: Tuple[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]],
+            initial_datetime: datetime = None,
+            interval: Union[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]] = 1,
             speed: float = 1.0,
             max_datetime: datetime = None,
             skip_step: bool = False,

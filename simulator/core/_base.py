@@ -1,19 +1,21 @@
+from __future__ import annotations
+
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Tuple, Union
 
-from ..utils import cast
+from .utils import cast
 
 _STEP_TYPE = Union[int, datetime]
 _INTERVAL_TYPE = Union[int, float, timedelta]
 
 
 class IdentityMixin:
-    def __init_id__(self) -> None:
-        self._id = int(uuid.uuid4())
+    def __init_id__(self, _id: str = None) -> None:
+        self._id = str(uuid.uuid4()) if _id is None else _id
 
     @property
-    def id(self) -> int:
+    def id(self) -> str:
         return self._id
 
 
@@ -22,6 +24,13 @@ class RandomGeneratorMixin:
         from numpy.random import RandomState
 
         self._rng = RandomState(seed)
+
+    def dump_rng_state(self) -> Tuple[str, List[int], int, int, float]:
+        state = self._rng.get_state()
+        return state[:1] + ( state[1].tolist(), ) + state[2:]
+
+    def load_rng_state(self, state: Tuple[str, List[int], int, int, float]) -> None:
+        self._rng.set_state(state)
 
     def random_seed(
             self,
@@ -32,10 +41,14 @@ class RandomGeneratorMixin:
 
 
 class ReprMixin:
-    __repr_attrs__: Tuple[str]
+    __repr_attrs__: Tuple[str, ...]
+
+    def __init_subclass__(cls, repr_attrs=Tuple[str, ...], **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        cls.__repr_attrs__ = repr_attrs
 
     def __repr__(self) -> str:
-        kwargs: Dict[str, str] = dict()
+        kwargs: Dict[str, str] = {}
         for identifier in self.__class__.__repr_attrs__:
             attr = getattr(self, identifier)
             if callable(attr):
@@ -44,6 +57,20 @@ class ReprMixin:
             kwargs[identifier] = attr
 
         return f"{self.__class__.__name__}({', '.join([f'{k}={v}' for k, v in kwargs.items()])})"
+
+
+class SuperclassMixin:
+    __subclasses__: Dict[str, SuperclassMixin] = {}
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        for superclass in cls.__mro__[1:-1]:
+            if not isinstance(superclass, SuperclassMixin):
+                continue
+
+            superclass.__subclasses__[superclass.__name__] = superclass
+
+        cls.__subclasses__ = {}
 
 
 class StepMixin:
@@ -148,7 +175,7 @@ class IntegerStepMixin(StepMixin):
         super().__init_step__(
             cast(initial_step, int),
             cast(interval, int),
-            cast(max_step, int) if max_step is not None else max_step
+            cast(max_step, int) if max_step is not None else None
         )
 
     @property
@@ -186,7 +213,7 @@ class FloatStepMixin(StepMixin):
         super().__init_step__(
             cast(initial_step, float),
             cast(interval, float),
-            cast(max_step, float) if max_step is not None else max_step
+            cast(max_step, float) if max_step is not None else None
         )
 
     @property
@@ -224,7 +251,7 @@ class DatetimeStepMixin(StepMixin):
         super().__init_step__(
             cast(initial_step, datetime),
             cast(interval, timedelta),
-            cast(max_step, datetime) if max_step is not None else max_step
+            cast(max_step, datetime) if max_step is not None else None
         )
 
     @property
@@ -299,7 +326,7 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
     def __init_step__(
             self,
             initial_step: datetime,
-            interval: Tuple[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]],
+            interval: Union[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]],
             max_step: datetime = None,
         ) -> None:
         self._interval_min, self._interval_max = self._normalize_interval_range(interval)
@@ -312,7 +339,7 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
 
     @staticmethod
     def _normalize_interval_range(
-            value: Tuple[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]]
+            value: Union[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]]
         ) -> Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]:
         if isinstance(value, float) \
                 or isinstance(value, int) \
@@ -349,7 +376,7 @@ class RandomDatetimeStepMixin(DatetimeStepMixin, RandomGeneratorMixin):
     @interval.setter
     def interval(
             self,
-            value: Tuple[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]]
+            value: Union[_INTERVAL_TYPE, Tuple[_INTERVAL_TYPE, _INTERVAL_TYPE]]
         ) -> None:
         self._interval_min, self._interval_max = self._normalize_interval_range(value)
 

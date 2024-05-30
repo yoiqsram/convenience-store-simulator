@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import numpy as np
-import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, Union, TYPE_CHECKING
 
 from ..context import GlobalContext, DAYS_IN_YEAR
 from ..core import Agent, DatetimeStepMixin, IdentityMixin
-from ..core.restore import RestoreTypes
+from ..core.restore import RestorableMixin
+from ..core.utils import cast
 from ..enums import AgeGroup, FamilyStatus, OrderStatus, PaymentMethod
-from ..population import Family
+from ..population import Family, Person
 from .order import Order
 from .sku import Product, SKU
 
@@ -18,16 +18,130 @@ if TYPE_CHECKING:
     from .store import Store
 
 
+class CustomerData(RestorableMixin):
+    def __init__(
+            self,
+            initial_date: date,
+            seed: int = None,
+            rng: np.random.RandomState = None,
+            product_need_days_left: Dict[Product, int] = None,
+            payment_method_prob: Dict[PaymentMethod, float] = None,
+            payment_method_time: Dict[PaymentMethod, float] = None
+            ) -> None:
+        if rng is None:
+            rng = np.random.RandomState(seed)
+
+        if product_need_days_left is None:
+            product_need_days_left = {
+                product: int(rng.randint(0, product.interval_days_need))
+                for product in Product.all()
+            }
+        self.product_need_days_left = product_need_days_left
+        self.last_product_need_updated_date = initial_date
+
+        if payment_method_prob is None \
+                or payment_method_time is None:
+            payment_method_prob_, payment_method_time_ = \
+                self.random_payment_method_config(seed, rng)
+
+        if payment_method_prob is None:
+            self.payment_method_prob = payment_method_prob_
+        else:
+            self.payment_method_prob = payment_method_prob
+
+        if payment_method_time is None:
+            self.payment_method_time = payment_method_time_
+        else:
+            self.payment_method_time = payment_method_time
+
+    @property
+    def restore_attrs(self) -> Dict[str, Any]:
+        attrs = {
+            'product_need_days_left': {
+                product.name: days_left
+                for product, days_left in self.product_need_days_left.items()
+            },
+            'last_product_need_updated_date':
+                self.last_product_need_updated_date,
+            'payment_method_params': {
+                payment_method.name: (
+                    self.payment_method_prob[payment_method],
+                    self.payment_method_time[payment_method]
+                )
+                for payment_method in self.payment_method_prob.keys()
+            }
+        }
+        return attrs
+
+    @staticmethod
+    def random_payment_method_config(
+            seed: int = None,
+            rng: np.random.RandomState = None
+            ) -> Tuple[Dict[PaymentMethod, float], Dict[PaymentMethod, float]]:
+        if rng is None:
+            rng = np.random.RandomState(seed)
+
+        payment_method_weight = {
+            PaymentMethod.CASH: max(0, rng.normal(0.8, 0.05)),
+            PaymentMethod.CREDIT_CARD: max(0, rng.normal(0.01, 0.01)),
+            PaymentMethod.DEBIT_CARD: max(0, rng.normal(0.05, 0.025)),
+            PaymentMethod.DIGITAL_CASH: max(0, rng.normal(0.05, 0.025))
+        }
+        total_payment_method_weight = \
+            np.sum(list(payment_method_weight.values()))
+        payment_method_prob: Dict[PaymentMethod, float] = {
+            payment_method: float(weight / total_payment_method_weight)
+            for payment_method, weight in payment_method_weight.items()
+        }
+        payment_method_time: Dict[PaymentMethod, float] = {
+            PaymentMethod.CASH: float(np.clip(
+                rng.normal(5.0, 1.0), 2.0, 15.0
+            )),
+            PaymentMethod.CREDIT_CARD: float(np.clip(
+                rng.normal(15.0, 3.0), 10.0, 45.0
+            )),
+            PaymentMethod.DEBIT_CARD: float(np.clip(
+                rng.normal(20.0, 3.0), 10.0, 45.0
+            )),
+            PaymentMethod.DIGITAL_CASH: float(np.clip(
+                rng.normal(10.0, 2.0), 5.0, 30.0
+            ))
+        }
+        return payment_method_prob, payment_method_time
+
+    @classmethod
+    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Customer:
+        payment_method_prob = {}
+        payment_method_time = {}
+        for payment_method_name, (prob, time) in (
+                attrs['payment_method_params'].items()
+                ):
+            payment_method = getattr(PaymentMethod, payment_method_name)
+            payment_method_prob[payment_method] = prob
+            payment_method_time[payment_method] = time
+
+        obj = cls(
+            attrs['last_product_need_updated_date'],
+            product_need_days_left={
+                Product.get(product_name): days_left
+                for product_name, days_left in (
+                    attrs['product_need_days_left'].items()
+                )
+            },
+            payment_method_prob=payment_method_prob,
+            payment_method_time=payment_method_time
+        )
+
+        return obj
+
+
 class Customer(
         Agent,
         DatetimeStepMixin, IdentityMixin,
-        repr_attrs=('n_members', 'current_datetime', 'current_order')
+        repr_attrs=('current_datetime', 'current_order')
         ):
-    __additional_types__ = RestoreTypes(PaymentMethod)
-
     def __init__(
             self,
-            family: Family,
             initial_datetime: datetime,
             interval: float,
             seed: int = None,
@@ -41,24 +155,24 @@ class Customer(
         )
 
         self.parent: Store
-        self.family = family
-
-        self.product_need_days_left: Dict[Product, int] = {
-            product: int(self._rng.randint(0, product.interval_days_need))
-            for product in Product.all()
-        }
-        self.last_product_need_updated_date: date = initial_datetime.date()
-
-        self.payment_method_prob, self.payment_method_time = \
-            self.random_payment_method_config()
-
         self.current_order: Union[Order, None] = None
 
         self.__init_id__()
 
     @property
+    def family(self) -> Family:
+        return Family.restore(self.restore_file.parent / 'family.json')
+
+    @property
     def n_members(self) -> int:
         return self.family.n_members
+
+    @property
+    def data(self) -> CustomerData:
+        return CustomerData.restore(
+            self.restore_file.parent / 'customer_data.json',
+            tmp=True
+        )
 
     def step(self) -> Tuple[datetime, Union[datetime, None]]:
         current_datetime, next_datetime = super().step()
@@ -67,9 +181,11 @@ class Customer(
 
         current_date = current_datetime.date()
         if self.current_order is None:
+            family = self.family
+
             # Unfortunately some kids could be orphaned
             # and only be able to order when they reach teenage
-            oldest_age = self.family.oldest_age(current_date)
+            oldest_age = family.oldest_age(current_date)
             if oldest_age < AgeGroup.KID.value:
                 self._next_step = (
                     current_datetime
@@ -79,21 +195,26 @@ class Customer(
                 )
                 return current_datetime, self._next_step
 
+            data = self.data
+
             # Randomize buyer representative and get the family needs
-            buyer = self.random_buyer()
-            needed_products = self.get_needed_products()
+            buyer = self.random_buyer(family)
+            needed_products = self.get_needed_products(
+                data.product_need_days_left
+            )
 
             # Update product needs
-            for product in self.product_need_days_left.keys():
+            for product in data.product_need_days_left.keys():
                 if product in needed_products:
-                    self.product_need_days_left[product] = self._rng.poisson(
+                    data.product_need_days_left[product] = self._rng.poisson(
                         product.interval_days_need
                     )
-                elif self.last_product_need_updated_date:
-                    self.product_need_days_left[product] -= (
-                        current_date - self.last_product_need_updated_date
+                elif data.last_product_need_updated_date < current_date:
+                    data.product_need_days_left[product] -= (
+                        current_date - data.last_product_need_updated_date
                     ).days
-            self.last_product_need_updated_date = current_date
+            data.last_product_need_updated_date = current_date
+            data.push_restore(tmp=True)
 
             # Calculate conversion from needs to purchase
             # from the store, then order
@@ -105,8 +226,19 @@ class Customer(
 
             # Skip order if have no product to purchase,
             # wouldn't spend, store is close or store is open but full
+
+            # Adjust spending rate to conversion rate based on weekday
+            conversion_rate = family.spending_rate
+            weekday = current_datetime.weekday()
+            if weekday == 0:
+                conversion_rate *= 1.1
+            elif weekday == 5:
+                conversion_rate *= 1.25
+            elif weekday == 6:
+                conversion_rate *= 1.5
+
             if len(order_products) == 0 \
-                    or self._rng.random() > self.family.spending_rate \
+                    or self._rng.random() > conversion_rate \
                     or not self.parent.is_open() \
                     or self.parent.is_full_queue():
                 self._next_step = \
@@ -118,6 +250,16 @@ class Customer(
             order_skus = self.get_order_skus(order_products)
             self.current_order = Order(order_skus, current_datetime)
             self.current_order.buyer = buyer
+
+            order_dir = (
+                self.parent.restore_file.parent
+                / 'Order'
+            )
+            order_dir.mkdir(exist_ok=True)
+            self.current_order.push_restore(
+                order_dir / f'{self.current_order.id}.json',
+                tmp=True
+            )
 
             collection_time = \
                 self.calculate_collection_time(self.current_order)
@@ -133,10 +275,16 @@ class Customer(
 
         # Paying order
         elif self.current_order.status == OrderStatus.WAITING_PAYMENT:
-            payment_method = self.random_payment_method()
+            data = self.data
+
+            payment_method = \
+                self.random_payment_method(data.payment_method_prob)
             self.current_order.begin_payment(payment_method)
 
-            payment_time = self.calculate_payment_time(self.current_order)
+            payment_time = self.calculate_payment_time(
+                self.current_order,
+                data.payment_method_time
+            )
             self._next_step = (
                 current_datetime
                 + timedelta(seconds=payment_time)
@@ -156,37 +304,6 @@ class Customer(
             return current_datetime, self._next_step
 
         return current_datetime, next_datetime
-
-    def random_payment_method_config(
-            self
-            ) -> Tuple[Dict[PaymentMethod, float], Dict[PaymentMethod, float]]:
-        payment_method_weight = {
-            PaymentMethod.CASH: max(0, self._rng.normal(0.8, 0.05)),
-            PaymentMethod.CREDIT_CARD: max(0, self._rng.normal(0.01, 0.01)),
-            PaymentMethod.DEBIT_CARD: max(0, self._rng.normal(0.05, 0.025)),
-            PaymentMethod.DIGITAL_CASH: max(0, self._rng.normal(0.05, 0.025))
-        }
-        total_payment_method_weight = \
-            np.sum(list(payment_method_weight.values()))
-        payment_method_prob: Dict[PaymentMethod, float] = {
-            payment_method: float(weight / total_payment_method_weight)
-            for payment_method, weight in payment_method_weight.items()
-        }
-        payment_method_time: Dict[PaymentMethod, float] = {
-            PaymentMethod.CASH: float(np.clip(
-                self._rng.normal(5.0, 1.0), 2.0, 15.0
-            )),
-            PaymentMethod.CREDIT_CARD: float(np.clip(
-                self._rng.normal(15.0, 3.0), 10.0, 45.0
-            )),
-            PaymentMethod.DEBIT_CARD: float(np.clip(
-                self._rng.normal(20.0, 3.0), 10.0, 45.0
-            )),
-            PaymentMethod.DIGITAL_CASH: float(np.clip(
-                self._rng.normal(10.0, 2.0), 5.0, 30.0
-            ))
-        }
-        return payment_method_prob, payment_method_time
 
     def calculate_next_order_datetime(self, current_date: date) -> datetime:
         order_datetime = (
@@ -213,14 +330,14 @@ class Customer(
 
         return order_datetime
 
-    def random_buyer(self) -> Family:
+    def random_buyer(self, family: Family) -> Person:
         family_weight = {
             FamilyStatus.SINGLE: 1,
             FamilyStatus.PARENT: 8,
             FamilyStatus.CHILD: 1
         }
 
-        potential_buyers = [member for member in self.family.members]
+        potential_buyers = [member for member in family.members]
         potential_buyer_weights = [
             family_weight[member.status]
             for member in potential_buyers
@@ -234,23 +351,29 @@ class Customer(
             )
         )
 
-    def random_payment_method(self) -> PaymentMethod:
+    def random_payment_method(
+            self,
+            payment_method_prob: Dict[PaymentMethod, float]
+            ) -> PaymentMethod:
         return self._rng.choice(
-            list(self.payment_method_prob.keys()),
-            p=list(self.payment_method_prob.values())
+            list(payment_method_prob.keys()),
+            p=list(payment_method_prob.values())
         )
 
-    def get_needed_products(self) -> List[Product]:
+    def get_needed_products(
+            self,
+            product_need_days_left: Dict[Product, int]
+            ) -> List[Product]:
         return [
             product
-            for product, days_left in self.product_need_days_left.items()
+            for product, days_left in product_need_days_left.items()
             if days_left <= 0
         ]
 
     def get_order_products(
             self,
             products: List[Product],
-            buyer: Family,
+            buyer: Person,
             current_date: date
             ) -> List[Product]:
         order_products = [
@@ -316,27 +439,17 @@ class Customer(
         )
         return collection_time
 
-    def calculate_payment_time(self, order: Order) -> float:
-        payment_time = self.payment_method_time[order.payment_method]
+    def calculate_payment_time(
+            self,
+            order: Order,
+            payment_method_time: Dict[PaymentMethod, float]
+            ) -> float:
+        payment_time = payment_method_time[order.payment_method]
         return payment_time
 
     @property
     def restore_attrs(self) -> Dict[str, Any]:
         attrs = super().restore_attrs
-        attrs['product_need_days_left'] = {
-            product.name: days_left
-            for product, days_left in self.product_need_days_left.items()
-        }
-        attrs['last_product_need_updated_date'] = \
-            self.last_product_need_updated_date
-
-        attrs['payment_method_params'] = {
-            payment_method.name: (
-                self.payment_method_prob[payment_method],
-                self.payment_method_time[payment_method]
-            )
-            for payment_method in self.payment_method_prob.keys()
-        }
 
         if self.current_order is not None:
             attrs['order_restore_file'] = \
@@ -345,50 +458,31 @@ class Customer(
 
         return attrs
 
-    def _push_restore(self, file: Path = None) -> None:
-        base_dir = file.parents[1]
-        if self.current_order is not None:
-            if hasattr(self.current_order, 'restore_file'):
-                self.current_order.push_restore()
-            else:
-                order_dir = base_dir / 'Order'
-                order_dir.mkdir(parents=True, exist_ok=True)
-                self.current_order.push_restore(
-                    order_dir / f'{uuid.uuid4()}.json'
-                )
+    def _push_restore(
+            self,
+            file: Path = None,
+            tmp: bool = False,
+            **kwargs
+            ) -> None:
+        data_restore_file = file.parent / 'customer_data.json'
+        if not data_restore_file.exists():
+            data = CustomerData(
+                self.current_date(),
+                rng=self._rng
+            )
+            data.push_restore(data_restore_file, tmp=True)
 
-        super()._push_restore(file)
+        super()._push_restore(file, tmp=tmp, **kwargs)
 
     @classmethod
     def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Customer:
-        family = Family.restore(file.parent / 'family.json')
-
         initial_step, interval, max_step, next_step = attrs['base_params']
         obj = cls(
-            family,
             initial_step,
             interval
         )
-        obj._max_step = max_step
-        obj._next_step = next_step
-
-        obj.product_need_days_left = {
-            Product.get(product_name): days_left
-            for product_name, days_left in (
-                attrs['product_need_days_left'].items()
-            )
-        }
-        obj.last_product_need_updated_date = \
-            attrs['last_product_need_updated_date']
-
-        obj.payment_method_prob = {}
-        obj.payment_method_time = {}
-        for payment_method_name, (prob, time) in (
-                attrs['payment_method_params'].items()
-                ):
-            payment_method = getattr(PaymentMethod, payment_method_name)
-            obj.payment_method_prob[payment_method] = prob
-            obj.payment_method_time[payment_method] = time
+        obj._max_step = cast(max_step, datetime)
+        obj._next_step = cast(next_step, datetime)
 
         if 'order_restore_file' in attrs:
             obj.current_order = Order.restore(
@@ -397,17 +491,3 @@ class Customer(
                 / attrs['order_restore_file']
             )
         return obj
-
-    @classmethod
-    def from_families(
-            cls,
-            families: Iterable[Family],
-            seed: int = None,
-            rng: np.random.RandomState = None
-            ) -> Iterable[Customer]:
-        for family in families:
-            yield cls(
-                family,
-                seed=seed,
-                rng=rng
-            )

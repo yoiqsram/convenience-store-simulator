@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import numpy as np
-import uuid
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Tuple, Union
 
 from ..core import ReprMixin, IdentityMixin
 from ..core.restore import RestorableMixin
 from ..context import GlobalContext
 from ..enums import AgeGroup, FamilyStatus, Gender
 from .person import Person
-
-if TYPE_CHECKING:
-    from .place import Place
 
 
 class Family(
@@ -26,8 +22,6 @@ class Family(
             spending_rate: float,
             _id: str = None
             ) -> None:
-        if len(members) == 0:
-            raise ValueError()
         self.members: List[Person] = list(members)
         for member in self.members:
             member.family = self
@@ -88,10 +82,8 @@ class Family(
 
     def birth(
             self,
-            place_code: str,
             current_date: date,
             gender: Gender = None,
-            anonymous: bool = True,
             seed: int = None,
             rng: np.random.RandomState = None
             ) -> None:
@@ -100,8 +92,6 @@ class Family(
             age=0.0,
             status=FamilyStatus.CHILD,
             current_date=current_date,
-            birth_place_code=place_code,
-            anonymous=anonymous,
             seed=seed,
             rng=rng
         )
@@ -126,19 +116,19 @@ class Family(
     def restore_attrs(self) -> Dict[str, Any]:
         return {
             'params': [
-                self.id,
-                self.spending_rate
+                self.spending_rate,
+                self.id
             ]
         }
 
-    def _push_restore(self, file: Path = None) -> None:
-        base_dir = file.parent
-
+    def _push_restore(self, file: Path, **kwargs) -> None:
         for person in self.members:
             if hasattr(person, 'restore_file'):
                 person.push_restore()
             else:
-                person.push_restore(base_dir / f'Person_{uuid.uuid4()}.json')
+                person_dir = file.parent / 'Person'
+                person_dir.mkdir(exist_ok=True)
+                person.push_restore(person_dir / f'{person.id}.json')
 
         super()._push_restore(file)
 
@@ -147,7 +137,7 @@ class Family(
         base_dir = file.parent
         members = [
             Person.restore(base_dir / person_restore_file)
-            for person_restore_file in base_dir.rglob('Person_*.json')
+            for person_restore_file in base_dir.rglob('Person/*.json')
         ]
         obj = cls(members, *attrs['params'])
         return obj
@@ -229,7 +219,7 @@ class Family(
         female.family.remove(female)
 
         new_family = cls(
-            members=[male, female],
+            [male, female],
             spending_rate=(male_spending_rate + female_spending_rate) / 2
         )
         male.status = FamilyStatus.PARENT
@@ -240,7 +230,6 @@ class Family(
     def generate(
             cls,
             current_date: date,
-            place: Place,
             n_members: int = None,
             spending_rate: float = None,
             n_members_expected: float = None,
@@ -271,7 +260,6 @@ class Family(
                 age=age,
                 status=FamilyStatus.SINGLE,
                 current_date=current_date,
-                birth_place_code=place.code,
                 rng=rng
             )
             members.append(single)
@@ -295,7 +283,6 @@ class Family(
                     age=father_age,
                     status=FamilyStatus.PARENT,
                     current_date=current_date,
-                    birth_place_code=place.code,
                     rng=rng
                 )
                 members.append(father)
@@ -307,7 +294,6 @@ class Family(
                     age=mother_age,
                     status=FamilyStatus.PARENT,
                     current_date=current_date,
-                    birth_place_code=place.code,
                     rng=rng
                 )
                 members.append(mother)
@@ -316,8 +302,9 @@ class Family(
 
             # Family with single parent
             else:
-                if rng.random() < \
-                        GlobalContext.POPULATION_FAMILY_SINGLE_PARENT_AND_MALE_PROB:
+                prob = \
+                    GlobalContext.POPULATION_FAMILY_SINGLE_PARENT_AND_MALE_PROB
+                if rng.random() < prob:
                     parent_gender = Gender.MALE
                 else:
                     parent_gender = Gender.FEMALE
@@ -328,7 +315,6 @@ class Family(
                     age=parent_age,
                     status=FamilyStatus.PARENT,
                     current_date=current_date,
-                    birth_place_code=place.code,
                     rng=rng
                 )
                 members.append(single_parent)
@@ -351,7 +337,6 @@ class Family(
                     age=child_age,
                     status=FamilyStatus.CHILD,
                     current_date=current_date,
-                    birth_place_code=place.code,
                     rng=rng
                 )
                 members.append(child)
@@ -377,7 +362,6 @@ class Family(
             cls,
             n: int,
             current_date: date,
-            place: Place,
             n_members_expected: float = None,
             purchasing_power_expected: float = None,
             spending_rate_expected: float = None,
@@ -400,7 +384,6 @@ class Family(
         return [
             Family.generate(
                 current_date,
-                place,
                 n_members[i],
                 spending_rates[i],
                 purchasing_power_expected=purchasing_power_expected,

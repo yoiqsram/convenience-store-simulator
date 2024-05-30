@@ -9,7 +9,7 @@ from ..context import GlobalContext
 from ..database import ModelMixin, SKUModel, ProductModel
 
 if TYPE_CHECKING:
-    from ..population.family import Family
+    from ..population import Person
 
 
 class Product(
@@ -52,7 +52,7 @@ class Product(
 
     def adjusted_modifier(
             self,
-            person: Family,
+            person: Person,
             current_date: date
             ) -> float:
         multiplier = 1.0
@@ -73,15 +73,6 @@ class Product(
                 continue
 
             multiplier += modifier['value']
-
-        # Adjust modifier based on weekday
-        weekday = current_date.weekday()
-        if weekday == 0:
-            multiplier += 0.1
-        elif weekday == 5:
-            multiplier += 0.25
-        elif weekday == 6:
-            multiplier += 0.5
 
         return self.modifier * multiplier
 

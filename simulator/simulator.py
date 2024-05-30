@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import numpy as np
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, Tuple
 
 from .core import RandomDatetimeEnvironment
+from .core.utils import cast
 from .context import GlobalContext, DAYS_IN_YEAR
-from .database import Database, StoreModel, create_database
+from .database import SubdistrictModel
 from .logging import simulator_logger, simulator_log_format
-from .population import Place
-from .store import Store
+from .population import Family, Place
+from .store import Customer, Store
 
 
 class Simulator(
         RandomDatetimeEnvironment,
-        repr_attrs=('n_stores', 'total_market_population', 'current_datetime')
+        repr_attrs=('n_stores', 'current_datetime')
         ):
     def __init__(
             self,
@@ -26,6 +28,7 @@ class Simulator(
             initial_stores: int = None,
             initial_store_population: int = None,
             store_growth_rate: float = None,
+            restore_dir: Path = None,
             seed: int = None
             ) -> None:
         if store_growth_rate is None:
@@ -60,65 +63,39 @@ class Simulator(
             seed=seed
         )
 
-        # Create simulator database if not available
-        if StoreModel.table_exists():
-            if StoreModel.select().count() > 1:
-                raise FileExistsError('Database is already exists.')
+        # Prepare restore file
+        if restore_dir is None:
+            restore_dir = GlobalContext.RESTORE_DIR
 
-        else:
-            _time = datetime.now()
-            database: Database = StoreModel._meta.database
-            simulator_logger.info(
-                f"Preparing {type(database).__name__.split('Database')[0]} "
-                "database for the simulator..."
-            )
-            create_database(initial_datetime)
-            simulator_logger.info(
-                f'Simulator database is ready. '
-                f'{(datetime.now() - _time).total_seconds():.1f}s'
-            )
-
-            import shutil
-            shutil.copy(database.database, str(database.database) + '.backup')
+        self.restore_file = restore_dir / 'simulator.json'
 
         # Generate stores
         if initial_stores is None:
             initial_stores = GlobalContext.INITIAL_STORES
 
-        if initial_stores == 0:
-            return
+        if initial_stores > 0:
+            if initial_store_population is None:
+                initial_store_population = \
+                    GlobalContext.STORE_MARKET_POPULATION
 
-        if initial_store_population is None:
-            initial_store_population = \
-                GlobalContext.STORE_MARKET_POPULATION
-
-        _time = datetime.now()
-        simulator_logger.info('Generating stores...')
-        for store in self.generate_stores(
+            _time_stores = datetime.now()
+            simulator_logger.info('Generating stores...')
+            self._populate_stores(
                 initial_stores,
                 initial_store_population,
-                self.current_datetime(),
-                GlobalContext.INITIAL_STORES_RANGE_DAYS
-                ):
-            store.update_market_population(self.current_datetime())
-            self.add_agent(store)
-            simulator_logger.debug(
-                f"New store '{store.place_name}' with "
-                f"market population size {store.total_market_population()} "
-                f"has been added. It will be built on '{store.initial_date}'."
+                build_range_days=GlobalContext.INITIAL_STORES_RANGE_DAYS
             )
-        simulator_logger.info(
-            f'Generated {self.n_stores} stores. '
-            f'{(datetime.now() - _time).total_seconds():.1f}s'
-        )
-        simulator_logger.info(
-            f'Simulator has been created. '
-            f'Total market population: {self.total_market_population()}.'
-        )
+            simulator_logger.info(
+                f'Simulator has been created with '
+                f'the initial of {self.n_stores} stores. '
+                f'{(datetime.now() - _time_stores).total_seconds():.1f}s.'
+            )
+
+        self.push_restore(tmp=True)
 
     @property
     def n_stores(self) -> int:
-        return len(self._agents)
+        return super().n_agents
 
     def stores(self) -> Iterable[Store]:
         return super().agents()
@@ -128,41 +105,6 @@ class Simulator(
             store.total_market_population()
             for store in self.stores()
         ])
-
-    def generate_stores(
-            self,
-            n: int,
-            market_population_expected: int,
-            initial_datetime: datetime,
-            range_days: int = 0
-            ) -> List[Store]:
-        stores = []
-        for place, delay_days in zip(
-                Place.generate(
-                    n,
-                    initial_datetime.date(),
-                    initial_population=market_population_expected,
-                    rng=self._rng
-                ),
-                self._rng.choice(range_days + 1, n)
-                ):
-            initial_datetime_ = (
-                datetime(
-                    initial_datetime.year,
-                    initial_datetime.month,
-                    initial_datetime.day
-                )
-                + timedelta(days=int(delay_days))
-            )
-            store = Store(
-                place,
-                initial_datetime_,
-                self.interval,
-                rng=self._rng
-            )
-            stores.append(store)
-
-        return stores
 
     def step(self):
         past_datetime = self.current_datetime()
@@ -202,22 +144,6 @@ class Simulator(
                         exc_info=True
                     )
 
-        # @ 1 month - Log market population size monthly
-        if current_datetime.month != past_datetime.month:
-            simulator_logger.info(simulator_log_format(
-                f'Total active stores: {n_active_stores}/{n_stores}.',
-                f'Total market population: {self.total_market_population()}.',
-                dt=current_datetime
-            ))
-            for i, store in enumerate(self.stores(), 1):
-                simulator_logger.info(simulator_log_format(
-                    f"Store #{str(i).rjust(len(str(n_stores)), '0')}",
-                    f"{store.place_name} |",
-                    "Total market population:",
-                    store.total_market_population(),
-                    dt=current_datetime
-                ))
-
         # @ 15 mins - Log synchronization between simulation
         # and the real/projected datetime
         if current_datetime.minute % 15 == 0 \
@@ -253,6 +179,11 @@ class Simulator(
         if current_datetime.hour != past_datetime.hour:
             simulator_logger.info(simulator_log_format(
                 f'Total active stores: {n_active_stores}/{n_stores}.',
+                'Total potential customers:',
+                sum([
+                    store.potential_customers
+                    for store in self.stores()
+                ]),
                 'Today cumulative orders:',
                 sum([
                     store.total_orders
@@ -273,8 +204,182 @@ class Simulator(
                     dt=current_datetime
                 ))
 
-        self.push_restore()
         return current_datetime, next_datetime
+
+    def _populate_stores(
+            self,
+            n: int,
+            market_population: int = None,
+            market_fertility_rate: float = None,
+            market_life_expectancy: float = None,
+            market_marry_age: float = None,
+            build_range_days: int = 0
+            ) -> None:
+        initial_datetime = self.current_datetime()
+        initial_date = initial_datetime.date()
+
+        total_subdistricts = SubdistrictModel.select().count()
+        subdistrict_ids = \
+            self._rng.choice(total_subdistricts, n, replace=False)
+
+        market_populations, fertility_rates, \
+            life_expectancies, marry_ages = \
+            self._calculate_market_params(
+                n,
+                market_population,
+                market_fertility_rate,
+                market_life_expectancy,
+                market_marry_age
+            )
+
+        delay_days = self._rng.choice(build_range_days + 1, n)
+
+        for subdistrict_id, market_population_, \
+                fertility_rate_, life_expectancy_, marry_age_, \
+                delay_days_ in zip(
+                    subdistrict_ids,
+                    market_populations,
+                    fertility_rates,
+                    life_expectancies,
+                    marry_ages,
+                    delay_days
+                ):
+            subdistrict: SubdistrictModel = (
+                SubdistrictModel.select()
+                .limit(1)
+                .offset(int(subdistrict_id))
+                .execute()
+                .iterate()
+            )
+
+            store_dir = (
+                self.restore_file.parent
+                / 'Store'
+                / subdistrict.code
+            )
+            store_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create a place
+            place = Place(
+                code=subdistrict.code,
+                name=subdistrict.name,
+                initial_date=initial_date,
+                initial_population=market_population_,
+                fertility_rate=fertility_rate_,
+                life_expectancy=life_expectancy_,
+                marry_age=marry_age_,
+                rng=self._rng
+            )
+            place.push_restore(store_dir / 'place.json', tmp=True)
+
+            # Add store on the place
+            store_initial_datetime = (
+                datetime(
+                    initial_datetime.year,
+                    initial_datetime.month,
+                    initial_datetime.day
+                )
+                + timedelta(days=int(delay_days_))
+            )
+            store = Store(
+                place,
+                store_initial_datetime,
+                self.interval,
+                rng=self._rng
+            )
+            self.add_agent(store)
+
+            # Prepare restore for employee
+            for employee in store.employees():
+                employee_dir = (
+                    store_dir
+                    / 'Employee'
+                    / employee.person.id
+                )
+                employee_dir.mkdir(parents=True, exist_ok=True)
+                employee.person.push_restore(employee_dir / 'person.json')
+                employee.push_restore(employee_dir / 'employee.json', tmp=True)
+
+            # Populate place with families and customer data
+            for family in Family.bulk_generate(
+                    int(place.initial_population / 3.0),
+                    initial_date,
+                    rng=self._rng
+                    ):
+                family_dir = (
+                    store_dir
+                    / 'Customer'
+                    / family.id
+                )
+                family_dir.mkdir(parents=True, exist_ok=True)
+                family.push_restore(family_dir / 'family.json')
+
+                customer = Customer(
+                    store_initial_datetime,
+                    self.interval,
+                    rng=self._rng
+                )
+                customer.push_restore(family_dir / 'customer.json', tmp=True)
+
+            store.push_restore(store_dir / 'store.json')
+            simulator_logger.debug(
+                f"New store '{place.name}'. "
+                f"It will be built on '{store.initial_date}'."
+            )
+
+    def _calculate_market_params(
+            self,
+            n: int,
+            population: int = None,
+            fertility_rate: float = None,
+            life_expectancy: float = None,
+            marry_age: float = None,
+            ):
+        if population is None:
+            population = GlobalContext.STORE_MARKET_POPULATION
+        populations = np.clip(
+            self._rng.normal(
+                population,
+                population * 0.25,
+                size=n
+            ),
+            50.0, np.Inf
+        )
+
+        if fertility_rate is None:
+            fertility_rate = GlobalContext.POPULATION_FERTILITY_RATE
+        fertility_rates = np.clip(
+            self._rng.normal(
+                fertility_rate,
+                fertility_rate * 0.1,
+                size=n
+            ),
+            0.0, np.Inf
+        )
+
+        if life_expectancy is None:
+            life_expectancy = GlobalContext.POPULATION_LIFE_EXPECTANCY
+        life_expectancies = np.clip(
+            self._rng.normal(
+                life_expectancy,
+                life_expectancy * 0.05,
+                size=n
+            ),
+            50.0, np.Inf
+        )
+
+        if marry_age is None:
+            marry_age = GlobalContext.POPULATION_MARRY_AGE
+        marry_ages = np.clip(
+            self._rng.normal(
+                marry_age,
+                marry_age * 0.05,
+                size=n
+            ),
+            18.0, np.Inf
+        )
+
+        return populations, fertility_rates, life_expectancies, marry_ages
 
     @property
     def restore_attrs(self) -> Dict[str, Any]:
@@ -282,32 +387,35 @@ class Simulator(
         attrs['store_growth_rate'] = self.store_growth_rate
         return attrs
 
-    def _push_restore(self, file: Path = None) -> None:
-        _time = datetime.now()
-        simulator_logger.info("Simulator is being backup...")
+    def _push_restore(
+            self,
+            file: Path = None,
+            tmp: bool = False,
+            **kwargs
+            ) -> None:
+        if not tmp:
+            _time = datetime.now()
+            simulator_logger.info("Simulator is being backup...")
 
-        for store in self.stores():
-            if hasattr(store, 'restore_file'):
-                store.push_restore()
-            else:
-                store_dir = file.parent / f'Store_{store.place.code}'
-                store_dir.mkdir(exist_ok=True)
-                store.push_restore(store_dir / 'store.json')
+            for store in self.stores():
+                store.update_market_population(self.current_datetime())
+                for employee in store.employees():
+                    employee.push_restore()
 
-        super()._push_restore(file)
+            super()._push_restore(file, tmp=tmp, **kwargs)
+            simulator_logger.info(
+                f'Succesfully backup the simulator. '
+                f'{(datetime.now() - _time).total_seconds():.1f}s.'
+            )
 
-        simulator_logger.info(simulator_log_format(
-            f"Succesfully backup the simulator in '{file}'.",
-            f'{(datetime.now() - _time).total_seconds():.1f}s',
-            dt=self.current_datetime()
-        ))
+        else:
+            super()._push_restore(file, tmp=tmp, **kwargs)
 
     @classmethod
     def _restore(
             cls,
             attrs: Dict[str, Any],
             file: Path,
-            store_restore_files: List[str],
             **kwargs
             ) -> Simulator:
         base_dir = file.parent
@@ -324,12 +432,19 @@ class Simulator(
             0,
             attrs['store_growth_rate']
         )
-        obj._next_step = next_step
+        obj._next_step = cast(next_step, datetime)
         obj._real_initial_datetime = attrs['real_initial_datetime']
+        obj.load_rng_state(attrs['rng_state'])
 
-        for store_restore_file in base_dir.rglob('Store_*/store.json'):
+        store_ids = kwargs.get('store_ids')
+        for store_restore_file in base_dir.rglob('Store/*/store.json'):
+            if isinstance(store_ids, list) \
+                    and store_restore_file.parent.name not in store_ids:
+                continue
+
             store = Store.restore(base_dir / str(store_restore_file))
+            store._rng = obj._rng
+            store.place._rng = obj._rng
             obj._agents.append(store)
 
-        obj.load_rng_state(attrs['rng_state'])
         return obj

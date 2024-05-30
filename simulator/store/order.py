@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple, TYPE_CHECKING
 
-from ..core import ReprMixin
+from ..core import ReprMixin, IdentityMixin
 from ..core.restore import RestorableMixin, RestoreTypes
 from ..database import Database, OrderModel, OrderSKUModel
 from ..enums import AgeGroup, Gender, PaymentMethod, OrderStatus
@@ -16,15 +17,17 @@ if TYPE_CHECKING:
 
 
 class Order(
-        RestorableMixin, ReprMixin,
+        RestorableMixin, ReprMixin, IdentityMixin,
         repr_attrs=('n_order_skus', 'status')
         ):
     __additional_types__ = RestoreTypes(PaymentMethod, OrderStatus)
+    __instances__: Dict[str, Order] = {}
 
     def __init__(
             self,
             order_skus: List[Tuple[SKU, int]],
-            begin_datetime: datetime
+            begin_datetime: datetime,
+            _id: str = None
             ) -> None:
         self._order_skus = order_skus
         self.buyer: Person = None
@@ -38,6 +41,8 @@ class Order(
         self.complete_datetime: datetime = None
 
         self._order_record: OrderModel = None
+
+        super().__init_id__(_id)
 
     @property
     def status(self) -> OrderStatus:
@@ -124,10 +129,15 @@ class Order(
 
     @property
     def restore_attrs(self) -> Dict[str, Any]:
+        record_id = None
+        if self._order_record is not None:
+            record_id = self._order_record.id
+
         return {
+            'id': self.id,
             'order_skus': {
                 sku.name: quantity
-                for sku, quantity in self.order_skus
+                for sku, quantity in self.order_skus()
             },
             'status': self.status,
             'payment_method': self.payment_method,
@@ -138,11 +148,30 @@ class Order(
                 self.checkout_end_datetime,
                 self.complete_datetime
             ],
-            'order_record_id': self._order_record.id
+            'order_record_id': record_id
         }
 
+    def _push_restore(
+            self,
+            file: Path = None,
+            tmp: bool = False,
+            **kwargs
+            ) -> None:
+        file_id = str(file.resolve())
+        if tmp:
+            file_id = file_id[:-4]
+
+        if file_id not in self.__class__.__instances__:
+            self.__class__.__instances__[file_id] = self
+
+        super()._push_restore(file, tmp=tmp, **kwargs)
+
     @classmethod
-    def _restore(cls, attrs: Dict[str, Any], **kwargs) -> Order:
+    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Order:
+        file_id = str(file.resolve())
+        if file_id in cls.__instances__:
+            return cls.__instances__[file_id]
+
         order_skus = [
             (SKU.get(name), quantity)
             for name, quantity in attrs['order_skus']
@@ -150,7 +179,8 @@ class Order(
 
         obj = cls(
             order_skus,
-            attrs['timeline'][0]
+            attrs['timeline'][0],
+            attrs['id']
         )
 
         obj._status = attrs['status']

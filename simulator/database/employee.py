@@ -2,7 +2,6 @@ from .base import (
     BaseModel, AutoField, CharField,
     DateField, DateTimeField, ForeignKeyField
 )
-from .store import SubdistrictModel
 
 
 class EmployeeModel(BaseModel):
@@ -11,10 +10,6 @@ class EmployeeModel(BaseModel):
     name = CharField()
     gender = CharField()
     birth_date = DateField()
-    birth_place_code = ForeignKeyField(
-        SubdistrictModel,
-        field=SubdistrictModel.code
-    )
 
     modified_datetime = DateTimeField()
 

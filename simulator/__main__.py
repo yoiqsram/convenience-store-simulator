@@ -32,6 +32,7 @@ if __name__ == '__main__':
             interval_max=args.interval_max,
             skip_step=args.skip_step,
             sync=not args.no_sync,
+            checkpoint=args.checkpoint,
             workers=args.workers,
-            store_restore_files=store_ids
+            store_ids=store_ids
         )

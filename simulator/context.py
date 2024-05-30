@@ -128,7 +128,7 @@ class GlobalContext:
         get_environment_variable(
             'SIMULATOR_POPULATION_MARRY_AGE',
             float,
-            22.5
+            25.0
         )
     POPULATION_PURCHASING_POWER: float = \
         get_environment_variable(

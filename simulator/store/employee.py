@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import numpy as np
-import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Tuple, Union, TYPE_CHECKING
 
 from ..core import Agent, DatetimeStepMixin
 from ..core.restore import RestoreTypes
+from ..core.utils import cast
 from ..database import EmployeeModel, EmployeeAttendanceModel, ModelMixin
 from ..enums import (
     AgeGroup, Gender, FamilyStatus, OrderStatus,
     EmployeeAttendanceStatus, EmployeeShift, EmployeeStatus
 )
 from ..logging import store_logger
-from ..population import Person, Place
+from ..population import Person
 from .order import Order
 
 if TYPE_CHECKING:
@@ -32,6 +32,7 @@ class Employee(
     def __init__(
             self,
             person: Person,
+            name: str,
             initial_datetime: datetime,
             interval: float,
             age_recognition_rate: float = None,
@@ -50,6 +51,7 @@ class Employee(
 
         self.parent: Store
         self.person = person
+        self.name = name
         self.age_recognition_rate = float(age_recognition_rate)
         self.counting_skill_rate = float(counting_skill_rate)
         self.content_rate = float(content_rate)
@@ -66,15 +68,10 @@ class Employee(
 
         super().__init_model__(
             unique_identifiers={'person_id': self.person.id},
-            name=person.name,
+            name=self.name,
             gender=person.gender.name,
-            birth_date=person.birth_date,
-            birth_place_code=person.birth_place_code
+            birth_date=person.birth_date
         )
-
-    @property
-    def name(self) -> str:
-        return self.person.name
 
     def step(self) -> Tuple[datetime, Union[datetime, None]]:
         current_datetime, next_datetime = super().step()
@@ -184,7 +181,6 @@ class Employee(
         # Complete order
         elif self.current_order.status == OrderStatus.PAID:
             self.current_order.submit(current_datetime)
-            self.current_order.delete_restore()
             self.current_order = None
 
             self.status = EmployeeStatus.IDLE
@@ -300,6 +296,7 @@ class Employee(
     @property
     def restore_attrs(self) -> Dict[str, Any]:
         attrs = super().restore_attrs
+        attrs['name'] = self.name
         attrs['skill_params'] = [
             self.age_recognition_rate,
             self.counting_skill_rate,
@@ -321,26 +318,6 @@ class Employee(
 
         return attrs
 
-    def _push_restore(self, file: Path = None) -> None:
-        if hasattr(self.person, 'restore_file'):
-            self.person.push_restore()
-        else:
-            self.person.push_restore(
-                file.parent / f'Person_{uuid.uuid4()}.json'
-            )
-
-        if self.current_order is not None:
-            if hasattr(self.current_order, 'restore_file'):
-                self.current_order.push_restore()
-            else:
-                order_dir = file.parents[2] / 'Order'
-                order_dir.mkdir(parents=True, exist_ok=True)
-                self.current_order.push_restore(
-                    order_dir / f'{uuid.uuid4()}.json'
-                )
-
-        super()._push_restore(file)
-
     @classmethod
     def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Employee:
         initial_step, interval, max_step, next_step = attrs['base_params']
@@ -348,12 +325,13 @@ class Employee(
             content_rate, discipline_rate = \
             attrs['skill_params']
 
-        for person_restore_file in file.parent.rglob('Person_*.json'):
+        for person_restore_file in file.parent.rglob('person.json'):
             person_restore_file = str(person_restore_file)
             person = Person.restore(file.parent / person_restore_file)
 
         obj = cls(
             person,
+            attrs['name'],
             initial_step,
             interval,
             age_recognition_rate,
@@ -361,8 +339,8 @@ class Employee(
             content_rate,
             discipline_rate,
         )
-        obj._max_step = max_step
-        obj._next_step = next_step
+        obj._max_step = cast(max_step, datetime)
+        obj._next_step = cast(next_step, datetime)
 
         obj.status = attrs['status']
         obj.shift = attrs['shift']
@@ -374,7 +352,7 @@ class Employee(
             obj.today_shift_end_datetime
         ) = attrs['shift_datetimes']
 
-        if attrs['order_rerstore_file'] is not None:
+        if attrs['order_restore_file'] is not None:
             obj.current_order = Order.restore(
                 file.parents[2]
                 / 'Order'
@@ -385,9 +363,8 @@ class Employee(
     @classmethod
     def generate(
             cls,
-            place: Place,
             current_datetime: datetime,
-            clock_interval: float,
+            interval: float,
             age_recognition_loc: float = 4.0,
             age_recognition_scale: float = 0.5,
             counting_skill_loc: float = 4.5,
@@ -447,16 +424,14 @@ class Employee(
             age=age,
             status=FamilyStatus.SINGLE,
             current_date=current_datetime.date(),
-            birth_place_code=place.code,
-            anonymous=False,
             seed=seed,
             rng=rng
         )
-        person.id = str(uuid.uuid4())
         return cls(
             person,
+            'Unnamed',
             current_datetime,
-            clock_interval,
+            interval,
             age_recognition_rate=age_recognition_rate,
             counting_skill_rate=counting_skill_rate,
             content_rate=content_rate,
@@ -470,7 +445,6 @@ class Employee(
             cls,
             n: int,
             current_date: date,
-            place: Place,
             age_recognition_loc: float = 4.0,
             age_recognition_scale: float = 0.5,
             counting_skill_loc: float = 4.5,
@@ -485,7 +459,6 @@ class Employee(
         return [
             cls.generate(
                 current_date,
-                place,
                 age_recognition_loc,
                 age_recognition_scale,
                 counting_skill_loc,

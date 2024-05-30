@@ -9,7 +9,7 @@ def cast(_value: Any, _type: type) -> Any:
             f"Cast type must be a type, not {type(_type).__name__}."
         )
 
-    elif isinstance(_value, _type):
+    elif _value is None or isinstance(_value, _type):
         return _value
 
     elif _type is bool:

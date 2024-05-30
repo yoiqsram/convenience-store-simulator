@@ -95,7 +95,7 @@ class MultiAgentStepMixin(StepMixin):
         self._skip_step = skip_step
 
         self._rc = False
-        '''Whether step is in racing condition, 
+        '''Whether step is in racing condition,
         where agent step is increase while this multi agent hasn't.'''
 
     @property
@@ -172,8 +172,8 @@ class MultiAgentStepMixin(StepMixin):
             **kwargs
             ) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
         self._rc = True
-
-        _, next_step = super().step(*args, **kwargs)
+        # using _rc flag to get 2 next moves
+        current_step, next_step = super().step(*args, **kwargs)
         if next_step is not None:
             for agent in self.agents():
                 agent_next_step = agent.next_step()
@@ -182,12 +182,12 @@ class MultiAgentStepMixin(StepMixin):
                     agent.step()
 
         self._rc = False
+        # back using the next move
         return super().step(*args, **kwargs)
 
 
 class MultiAgent(
-        Agent,
-        MultiAgentStepMixin,
+        MultiAgentStepMixin, Agent,
         repr_attrs=('n_agents', 'current_step')
         ):
     def __init__(

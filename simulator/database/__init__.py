@@ -1,5 +1,5 @@
 from datetime import datetime
-from peewee import Database, IntegrityError
+from peewee import Database, SqliteDatabase, IntegrityError
 from typing import List
 
 from ..context import GlobalContext
@@ -10,12 +10,12 @@ from .employee import (
     EmployeeShiftScheduleModel,
     EmployeeAttendanceModel
 )
-from .sku import (
+from .order import (
     PaymentMethodModel,
     OrderModel,
     OrderSKUModel
 )
-from .order import (
+from .sku import (
     CategoryModel,
     ProductModel,
     SKUModel
@@ -48,7 +48,10 @@ __all__ = [
     'CityModel',
     'DistrictModel',
     'SubdistrictModel',
-    'StoreModel'
+    'StoreModel',
+    'Database',
+    'SqliteDatabase',
+    'create_database'
 ]
 
 MODELS: List[BaseModel] = [
@@ -82,6 +85,8 @@ def create_database(created_datetime: datetime = None) -> Database:
     _populate_locations(created_datetime)
 
     database.create_tables([VersionModel])
+    if VersionModel.select().count() > 0:
+        VersionModel.select().delete().execute()
     VersionModel.create(
         created_datetime=created_datetime,
         modified_datetime=created_datetime

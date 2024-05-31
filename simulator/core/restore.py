@@ -81,6 +81,8 @@ class RestorableMixin:
         file = self.restore_file
         temp_file = file.parent / (file.name + '.tmp')
 
+        file.parent.mkdir(parents=True, exist_ok=True)
+
         if tmp:
             self._push_restore(temp_file, tmp=tmp, **kwargs)
             if not file.exists():
@@ -140,8 +142,12 @@ class RestorableMixin:
     @classmethod
     def restore(cls, file: Path, tmp: bool = False, **kwargs):
         file_ = file
+
+        tmp_file = file.parent / (file.name + '.tmp')
         if tmp:
-            file_ = file.parent / (file.name + '.tmp')
+            file_ = tmp_file
+            if not tmp_file.exists():
+                shutil.copy(file, tmp_file)
 
         attrs = cls.read_restore(file_, tmp=tmp)
         obj = cls._restore(attrs, file=file, tmp=tmp, **kwargs)

@@ -182,8 +182,8 @@ class GlobalContext:
 
     STORE_MAX_CASHIERS: int = \
         get_environment_variable('SIMULATOR_STORE_MAX_CASHIERS', int, 2)
-    STORE_INITIAL_EMPLOYEES: int = \
-        get_environment_variable('SIMULATOR_STORE_INITIAL_EMPLOYEES', int, 2)
+    STORE_MAX_EMPLOYEES: int = \
+        get_environment_variable('SIMULATOR_STORE_MAX_EMPLOYEES', int, 2)
     STORE_OPEN_HOUR: float = \
         get_environment_variable('SIMULATOR_STORE_OPEN_HOUR', float, 7.0)
     STORE_CLOSE_HOUR: float = \

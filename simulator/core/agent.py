@@ -46,7 +46,7 @@ class Agent(
 
         if next_step is not None \
                 and self.parent is not None:
-            parent_next_step = self.parent.next_step()
+            parent_next_step = self.parent.next_step
             if next_step < parent_next_step:
                 return parent_next_step
 
@@ -60,7 +60,7 @@ class Agent(
         current_step, next_step = super().step(*args, **kwargs)
 
         if self.parent is not None:
-            current_step = self.parent.current_step()
+            current_step = self.parent.current_step
             self._current_step = current_step
 
         return current_step, next_step
@@ -134,11 +134,13 @@ class MultiAgentStepMixin(StepMixin):
         for agent in agents:
             self.remove_agent(agent)
 
+    @property
     def current_step(self) -> _STEP_TYPE:
-        return super().current_step() if not self._rc else super().next_step()
+        return super().current_step if not self._rc else super().next_step
 
+    @property
     def next_step(self) -> Union[_STEP_TYPE, None]:
-        next_step = super().next_step()
+        next_step = super().next_step
         if not self._rc:
             return next_step
 
@@ -155,9 +157,12 @@ class MultiAgentStepMixin(StepMixin):
 
         min_agent_next_step = None
         for agent in self.agents():
-            agent_next_step = agent.next_step()
+            agent_next_step = agent.next_step
             if min_agent_next_step is None \
-                    or agent_next_step < min_agent_next_step:
+                    or (
+                        agent_next_step is not None
+                        and agent_next_step < min_agent_next_step
+                    ):
                 min_agent_next_step = agent_next_step
 
         if min_agent_next_step is None \
@@ -172,11 +177,12 @@ class MultiAgentStepMixin(StepMixin):
             **kwargs
             ) -> Tuple[_STEP_TYPE, Union[_STEP_TYPE, None]]:
         self._rc = True
-        # using _rc flag to get 2 next moves
-        current_step, next_step = super().step(*args, **kwargs)
+        # using _rc flag to virtually sync the step with children agent
+        # current_step, next_step = super().step(*args, **kwargs)
+        next_step = self.next_step
         if next_step is not None:
             for agent in self.agents():
-                agent_next_step = agent.next_step()
+                agent_next_step = agent.next_step
                 if agent_next_step is not None \
                         and agent_next_step <= next_step:
                     agent.step()

@@ -148,10 +148,15 @@ class Customer(
             rng: np.random.RandomState = None
             ) -> None:
         super().__init__(
-            initial_datetime,
-            interval,
+            cast(initial_datetime, float),
+            cast(interval, float),
             seed=seed,
             rng=rng
+        )
+
+        self._next_step = cast(
+            self.calculate_next_order_datetime(self.current_date),
+            float
         )
 
         self.parent: Store
@@ -161,7 +166,10 @@ class Customer(
 
     @property
     def family(self) -> Family:
-        return Family.restore(self.restore_file.parent / 'family.json')
+        return Family.restore(
+            self.restore_file.parent / 'family.json',
+            tmp=True
+        )
 
     @property
     def n_members(self) -> int:
@@ -175,11 +183,12 @@ class Customer(
         )
 
     def step(self) -> Tuple[datetime, Union[datetime, None]]:
-        current_datetime, next_datetime = super().step()
-        if next_datetime is None:
-            return current_datetime, next_datetime
-
+        self.parent.customer_steps += 1
+        current_step, next_step = super().step()
+        current_datetime = cast(current_step, datetime)
         current_date = current_datetime.date()
+        next_datetime = cast(next_step, datetime)
+
         if self.current_order is None:
             family = self.family
 
@@ -187,13 +196,16 @@ class Customer(
             # and only be able to order when they reach teenage
             oldest_age = family.oldest_age(current_date)
             if oldest_age < AgeGroup.KID.value:
-                self._next_step = (
+                self._next_step = cast(
                     current_datetime
                     + timedelta(
-                        days=(AgeGroup.KID.value - oldest_age) * DAYS_IN_YEAR
-                    )
+                        days=int(
+                            (AgeGroup.KID.value - oldest_age) * DAYS_IN_YEAR
+                        ) + 1
+                    ),
+                    float
                 )
-                return current_datetime, self._next_step
+                return current_step, self._next_step
 
             data = self.data
 
@@ -226,8 +238,7 @@ class Customer(
 
             # Skip order if have no product to purchase,
             # wouldn't spend, store is close or store is open but full
-
-            # Adjust spending rate to conversion rate based on weekday
+            #     Adjust spending rate to conversion rate based on weekday
             conversion_rate = family.spending_rate
             weekday = current_datetime.weekday()
             if weekday == 0:
@@ -241,10 +252,12 @@ class Customer(
                     or self._rng.random() > conversion_rate \
                     or not self.parent.is_open() \
                     or self.parent.is_full_queue():
-                self._next_step = \
-                    self.calculate_next_order_datetime(current_date)
-
-                return current_datetime, self._next_step
+                self.parent.total_canceled_orders += 1
+                self._next_step = cast(
+                    self.calculate_next_order_datetime(current_date),
+                    float
+                )
+                return current_step, self._next_step
 
             # Collecting order products in the store
             order_skus = self.get_order_skus(order_products)
@@ -263,11 +276,12 @@ class Customer(
 
             collection_time = \
                 self.calculate_collection_time(self.current_order)
-            self._next_step = (
+            self._next_step = cast(
                 current_datetime
-                + timedelta(seconds=collection_time)
+                + timedelta(seconds=collection_time),
+                float
             )
-            return current_datetime, self._next_step
+            return current_step, self._next_step
 
         # Queuing order
         elif self.current_order.status == OrderStatus.COLLECTING:
@@ -285,12 +299,13 @@ class Customer(
                 self.current_order,
                 data.payment_method_time
             )
-            self._next_step = (
+            self._next_step = cast(
                 current_datetime
-                + timedelta(seconds=payment_time)
+                + timedelta(seconds=payment_time),
+                float
             )
 
-            return current_datetime, self._next_step
+            return current_step, self._next_step
 
         # Complete the payment
         elif self.current_order.status == OrderStatus.DOING_PAYMENT:
@@ -299,17 +314,20 @@ class Customer(
         # Leave the store
         elif self.current_order.status == OrderStatus.DONE:
             self.current_order = None
-            self._next_step = self.calculate_next_order_datetime(current_date)
+            self._next_step = cast(
+                self.calculate_next_order_datetime(current_date),
+                float
+            )
+            return current_step, self._next_step
 
-            return current_datetime, self._next_step
-
-        return current_datetime, next_datetime
+        return current_step, next_datetime
 
     def calculate_next_order_datetime(self, current_date: date) -> datetime:
         order_datetime = (
             datetime(current_date.year, current_date.month, current_date.day)
             + timedelta(days=int(self._rng.poisson(7)))
         )
+
         if self._rng.random() < 0.2:
             order_datetime += timedelta(
                 hours=self._rng.uniform(
@@ -317,16 +335,18 @@ class Customer(
                     GlobalContext.STORE_CLOSE_HOUR
                 )
             )
-
         else:
             hour_loc = self._rng.choice(GlobalContext.STORE_PEAK_HOURS)
             hour_spread = min(
                 hour_loc - GlobalContext.STORE_OPEN_HOUR,
                 GlobalContext.STORE_CLOSE_HOUR - hour_loc
             )
-            order_datetime += timedelta(
-                hours=self._rng.normal(hour_loc, hour_spread / 2.0)
+            hours = np.clip(
+                self._rng.normal(hour_loc, hour_spread / 2.0),
+                GlobalContext.STORE_OPEN_HOUR - 0.5,
+                GlobalContext.STORE_CLOSE_HOUR + 0.5
             )
+            order_datetime += timedelta(hours=hours)
 
         return order_datetime
 
@@ -467,10 +487,10 @@ class Customer(
         data_restore_file = file.parent / 'customer_data.json'
         if not data_restore_file.exists():
             data = CustomerData(
-                self.current_date(),
+                self.current_date,
                 rng=self._rng
             )
-            data.push_restore(data_restore_file, tmp=True)
+            data.push_restore(data_restore_file, tmp=tmp)
 
         super()._push_restore(file, tmp=tmp, **kwargs)
 
@@ -481,8 +501,8 @@ class Customer(
             initial_step,
             interval
         )
-        obj._max_step = cast(max_step, datetime)
-        obj._next_step = cast(next_step, datetime)
+        obj._max_step = max_step
+        obj._next_step = next_step
 
         if 'order_restore_file' in attrs:
             obj.current_order = Order.restore(

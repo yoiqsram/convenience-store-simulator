@@ -67,8 +67,8 @@ class Environment(BaseEnvironment):
         return super().step()
 
     def run(self, interval: int = None, *args, **kwargs) -> None:
-        start_step = self.current_step()
-        next_step = self.next_step()
+        start_step = self.current_step
+        next_step = self.next_step
         while next_step is not None \
                 and (
                     interval is None
@@ -96,9 +96,9 @@ class DatetimeEnvironment(
             initial_datetime = datetime.now()
 
         super().__init__(
-            initial_step=initial_datetime,
-            interval=interval,
-            max_step=max_datetime,
+            initial_step=cast(initial_datetime, float),
+            interval=cast(interval, float),
+            max_step=cast(max_datetime, float),
             skip_step=skip_step,
             agents=agents,
             seed=seed
@@ -109,15 +109,15 @@ class DatetimeEnvironment(
 
     @property
     def step_delay(self) -> float:
-        next_step = self.next_step()
+        next_step = self.next_step
         if next_step is None:
             return
 
         if self.skip_step:
             interval = self._interval
         else:
-            interval = (next_step - self.current_step())
-        return interval.total_seconds() / self.speed
+            interval = (next_step - self.current_step)
+        return interval / self.speed
 
     def total_real_time_elapased(self) -> timedelta:
         if self._real_initial_datetime is None:
@@ -141,7 +141,8 @@ class DatetimeEnvironment(
             **kwargs
             ) -> Tuple[datetime, Union[datetime, None]]:
         real_start_datetime = datetime.now()
-        current_datetime, next_datetime = self.step(*args, **kwargs)
+        current_step, next_step = self.step(*args, **kwargs)
+        next_datetime = cast(next_step, datetime)
 
         real_current_datetime = datetime.now()
         speed_adjusted_real_current_datetime = real_current_datetime
@@ -161,7 +162,7 @@ class DatetimeEnvironment(
             if await_seconds > 0:
                 time.sleep(await_seconds)
 
-        return current_datetime, next_datetime
+        return current_step, next_step
 
     def run(
             self,
@@ -175,13 +176,14 @@ class DatetimeEnvironment(
             _skip_step = self.skip_step
             self.skip_step = skip_step
 
-        next_step = self.next_step()
-        while next_step is not None \
+        next_datetime = self.next_datetime
+        while next_datetime is not None \
                 and (
                     max_datetime is None
-                    or max_datetime >= next_step
+                    or max_datetime >= next_datetime
                 ):
             _, next_step = self.step_await(sync=sync, *args, **kwargs)
+            next_datetime = cast(next_step, datetime)
 
         if skip_step is not None:
             self.skip_step = _skip_step

@@ -1,6 +1,6 @@
 import argparse
-import shutil
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List
 
 from ..core.utils import cast
@@ -70,13 +70,27 @@ def add_run_parser(subparsers) -> None:
     )
 
 
+def clean_temporary_files(restore_dir: Path) -> None:
+    _time = datetime.now()
+    simulator_logger.info(
+        'Cleaning up temporary files from the last run...'
+    )
+
+    for file in restore_dir.rglob('*.json.tmp'):
+        file.unlink()
+
+    simulator_logger.info(
+        f"Temporary files have been cleaned. "
+        f'{(datetime.now() - _time).total_seconds():.1f}s'
+    )
+
+
 def run_simulator(
         max_datetime: datetime,
         speed: float,
         interval: float,
         interval_min: float,
         interval_max: float,
-        skip_step: bool,
         sync: bool,
         checkpoint: str,
         workers: int,
@@ -84,48 +98,32 @@ def run_simulator(
         ) -> None:
     restore_file = GlobalContext.RESTORE_DIR / 'simulator.json'
 
-    _time = datetime.now()
-    simulator_logger.info('Cleaning up temporary files from last run...')
-    for file in restore_file.parent.rglob('*.json.tmp'):
-        file.unlink()
-        shutil.copy(
-            file.parent / file.name[:-4],
-            file
-        )
-    simulator_logger.info(
-        f"Temporary files have been cleaned.. "
-        f'{(datetime.now() - _time).total_seconds():.1f}s'
-    )
+    clean_temporary_files(restore_file.parent)
 
     _time = datetime.now()
-    simulator_logger.info('Loading simulator restore...')
+    simulator_logger.info('Loading simulator...')
     simulator: Simulator = Simulator.restore(
         restore_file,
         store_ids=store_ids
     )
-
     simulator_logger.info(
-        f"Succesfully loaded the simulator restore. "
-        f'{(datetime.now() - _time).total_seconds():.1f}s'
+        f'Succesfully loaded the simulator. '
+        f'Last simulation datetime at {simulator.current_datetime}. '
+        f'{(datetime.now() - _time).total_seconds():.1f}s.'
     )
 
-    simulator_logger.info(
-        'Continue run simulator from the last state '
-        f'at {simulator.current_datetime()}.'
-    )
-
-    if interval_min is not None:
-        interval_max = None
-        if interval_max is not None:
-            interval_max = interval_max
+    if interval_min is not None \
+            and interval_max is not None:
         simulator.interval = (interval_min, interval_max)
     elif interval is not None:
         simulator.interval = interval
 
-    simulator.speed = speed
+    simulator._next_step = simulator._current_step + simulator.interval
 
-    if max_datetime is None:
-        max_datetime = cast(max_datetime, datetime)
+    if speed is not None:
+        simulator.speed = speed
+
+    max_datetime = cast(max_datetime, datetime)
 
     if checkpoint == 'hourly':
         checkpoint_interval = timedelta(hours=1)
@@ -138,15 +136,18 @@ def run_simulator(
     else:
         checkpoint_interval = timedelta(days=30)
 
-    max_datetime_ = simulator.current_datetime() + checkpoint_interval
-    while simulator.next_datetime() is not None \
+    max_datetime_ = simulator.current_datetime + checkpoint_interval
+    if max_datetime is not None \
+            and max_datetime < max_datetime_:
+        max_datetime_ = max_datetime
+
+    while simulator.next_datetime is not None \
             and (
                 max_datetime is None
                 or simulator.next_datetime <= max_datetime
             ):
         simulator.run(
             sync=sync,
-            max_datetime=max_datetime_,
-            skip_step=skip_step
+            max_datetime=max_datetime_
         )
         simulator.push_restore()

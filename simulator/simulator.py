@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Tuple
@@ -24,7 +25,6 @@ class Simulator(
             interval: Tuple[float, Tuple[float, float]] = None,
             speed: float = None,
             max_datetime: datetime = None,
-            skip_step: bool = False,
             initial_stores: int = None,
             initial_store_population: int = None,
             store_growth_rate: float = None,
@@ -59,7 +59,7 @@ class Simulator(
             interval=interval,
             speed=speed,
             max_datetime=max_datetime,
-            skip_step=skip_step,
+            skip_step=True,
             seed=seed
         )
 
@@ -107,14 +107,15 @@ class Simulator(
         ])
 
     def step(self):
-        past_datetime = self.current_datetime()
-        current_datetime, next_datetime = super().step()
+        past_datetime = self.current_datetime
+        current_step, next_step = super().step()
+        current_datetime = cast(current_step, datetime)
 
         n_stores = self.n_stores
         n_active_stores = len([
             store
             for store in self.stores()
-            if store.initial_datetime <= current_datetime
+            if store.initial_step <= current_step
         ])
 
         # @ 1 day - Daily update possibility of store growth
@@ -166,7 +167,7 @@ class Simulator(
                 speed_adjusted_real_current_datetime
                 .isoformat(sep=' ', timespec='seconds')
             )
-            if behind_seconds >= self.interval.total_seconds():
+            if behind_seconds >= self._interval:
                 simulator_logger.info(simulator_log_format(
                     'Simulation is behind the',
                     'real datetime' if self.speed == 1.0
@@ -179,11 +180,6 @@ class Simulator(
         if current_datetime.hour != past_datetime.hour:
             simulator_logger.info(simulator_log_format(
                 f'Total active stores: {n_active_stores}/{n_stores}.',
-                'Total potential customers:',
-                sum([
-                    store.potential_customers
-                    for store in self.stores()
-                ]),
                 'Today cumulative orders:',
                 sum([
                     store.total_orders
@@ -191,20 +187,39 @@ class Simulator(
                 ]),
                 dt=current_datetime
             ))
+            simulator_logger.debug(simulator_log_format(
+                'Total canceled orders:',
+                sum([
+                    store.total_canceled_orders
+                    for store in self.stores()
+                ]),
+                '. Total customer steps:',
+                sum([
+                    store.customer_steps
+                    for store in self.stores()
+                ]),
+                '. Total employee steps:',
+                sum([
+                    store.employee_steps
+                    for store in self.stores()
+                ]),
+                dt=current_datetime
+            ))
 
             for i, store in enumerate(self.stores(), 1):
-                if store.initial_datetime > current_datetime:
+                if store.initial_step > current_step:
                     continue
 
                 simulator_logger.info(simulator_log_format(
                     f"Store #{str(i).rjust(len(str(n_stores)), '0')}",
                     store.place_name,
                     '-', 'OPEN' if store.is_open() else 'CLOSE',
+                    f'({store.n_cashiers}/{store.n_employees})',
                     f'| Today cumulative orders: {store.total_orders}.',
                     dt=current_datetime
                 ))
 
-        return current_datetime, next_datetime
+        return current_step, next_step
 
     def _populate_stores(
             self,
@@ -215,7 +230,7 @@ class Simulator(
             market_marry_age: float = None,
             build_range_days: int = 0
             ) -> None:
-        initial_datetime = self.current_datetime()
+        initial_datetime = self.current_datetime
         initial_date = initial_datetime.date()
 
         total_subdistricts = SubdistrictModel.select().count()
@@ -244,6 +259,8 @@ class Simulator(
                     marry_ages,
                     delay_days
                 ):
+            _time_store = datetime.now()
+
             subdistrict: SubdistrictModel = (
                 SubdistrictModel.select()
                 .limit(1)
@@ -268,7 +285,7 @@ class Simulator(
                 fertility_rate=fertility_rate_,
                 life_expectancy=life_expectancy_,
                 marry_age=marry_age_,
-                rng=self._rng
+                rng=np.random.RandomState(self.random_seed())
             )
             place.push_restore(store_dir / 'place.json', tmp=True)
 
@@ -285,8 +302,9 @@ class Simulator(
                 place,
                 store_initial_datetime,
                 self.interval,
-                rng=self._rng
+                rng=place._rng
             )
+            store.created_datetime = initial_datetime
             self.add_agent(store)
 
             # Prepare restore for employee
@@ -304,7 +322,7 @@ class Simulator(
             for family in Family.bulk_generate(
                     int(place.initial_population / 3.0),
                     initial_date,
-                    rng=self._rng
+                    rng=place._rng
                     ):
                 family_dir = (
                     store_dir
@@ -317,14 +335,16 @@ class Simulator(
                 customer = Customer(
                     store_initial_datetime,
                     self.interval,
-                    rng=self._rng
+                    rng=place._rng
                 )
                 customer.push_restore(family_dir / 'customer.json', tmp=True)
+                store.add_agent(customer)
 
             store.push_restore(store_dir / 'store.json')
             simulator_logger.debug(
-                f"New store '{place.name}'. "
-                f"It will be built on '{store.initial_date}'."
+                f"New store '{place.name}' is created and "
+                f"the initial date is on '{store.initial_date}'. "
+                f'{(datetime.now() - _time_store).total_seconds():.1f}s.'
             )
 
     def _calculate_market_params(
@@ -398,9 +418,7 @@ class Simulator(
             simulator_logger.info("Simulator is being backup...")
 
             for store in self.stores():
-                store.update_market_population(self.current_datetime())
-                for employee in store.employees():
-                    employee.push_restore()
+                store.update_market_population(self.current_datetime)
 
             super()._push_restore(file, tmp=tmp, **kwargs)
             simulator_logger.info(
@@ -427,24 +445,31 @@ class Simulator(
             interval,
             speed,
             max_step,
-            skip_step,
             0,
             0,
             attrs['store_growth_rate']
         )
-        obj._next_step = cast(next_step, datetime)
+        obj._next_step = next_step
         obj._real_initial_datetime = attrs['real_initial_datetime']
         obj.load_rng_state(attrs['rng_state'])
 
         store_ids = kwargs.get('store_ids')
         for store_restore_file in base_dir.rglob('Store/*/store.json'):
+            _time = datetime.now()
             if isinstance(store_ids, list) \
                     and store_restore_file.parent.name not in store_ids:
                 continue
 
             store = Store.restore(base_dir / str(store_restore_file))
-            store._rng = obj._rng
-            store.place._rng = obj._rng
-            obj._agents.append(store)
+            if store.record_id is None:
+                shutil.rmtree(store_restore_file.parent)
+                continue
+
+            obj.add_agent(store)
+
+            simulator_logger.debug(
+                f"Loaded store '{store.place.name}'. "
+                f'{(datetime.now() - _time).total_seconds():.1f}s.'
+            )
 
         return obj

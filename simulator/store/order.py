@@ -8,10 +8,10 @@ from ..core import ReprMixin, IdentityMixin
 from ..core.restore import RestorableMixin, RestoreTypes
 from ..database import Database, OrderModel, OrderSKUModel
 from ..enums import AgeGroup, Gender, PaymentMethod, OrderStatus
+from .sku import SKU
 
 if TYPE_CHECKING:
     from ..population import Person
-    from .sku import SKU
     from .store import Store
     from .employee import Employee
 
@@ -135,10 +135,10 @@ class Order(
 
         return {
             'id': self.id,
-            'order_skus': {
-                sku.name: quantity
+            'order_skus': [
+                (sku.name, quantity)
                 for sku, quantity in self.order_skus()
-            },
+            ],
             'status': self.status,
             'payment_method': self.payment_method,
             'timeline': [
@@ -193,7 +193,8 @@ class Order(
             obj.complete_datetime
         ) = attrs['timeline']
 
-        obj._order_record = OrderModel.get(
-            OrderModel.id == attrs['order_record_id']
-        )
+        if attrs['order_record_id'] is not None:
+            obj._order_record = OrderModel.get(
+                OrderModel.id == attrs['order_record_id']
+            )
         return obj

@@ -3,16 +3,13 @@ from __future__ import annotations
 import numpy as np
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Union, TYPE_CHECKING
+from typing import Any, Dict
 
 from ..core import ReprMixin, IdentityMixin
 from ..core.restore import RestorableMixin
 from ..core.utils import cast
 from ..context import DAYS_IN_YEAR
 from ..enums import FamilyStatus, Gender
-
-if TYPE_CHECKING:
-    from .family import Family
 
 
 class Person(
@@ -29,8 +26,6 @@ class Person(
         self.gender = gender
         self.status = status
         self.birth_date = birth_date
-
-        self.family: Union[Family, None] = None
 
         self.__init_id__(_id)
 

@@ -3,13 +3,13 @@ from __future__ import annotations
 import numpy as np
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Iterable, Tuple
+from typing import Any, Dict, List, Iterable, Set, Tuple
 
 from ..core import ReprMixin, RandomGeneratorMixin
 from ..core.restore import RestorableMixin
 from ..context import DAYS_IN_YEAR
 from ..database import ModelMixin, SubdistrictModel
-from .family import Family, FamilyStatus, Gender
+from .family import Family, FamilyStatus, Gender, Person
 
 
 class Place(
@@ -48,7 +48,7 @@ class Place(
     def families(self) -> Iterable[Family]:
         base_dir = self.restore_file.parent
         for restore_file in base_dir.rglob('Customer/*/family.json'):
-            yield Family.restore(base_dir / str(restore_file))
+            yield Family.restore(base_dir / str(restore_file), tmp=True)
 
     @property
     def n_families(self) -> int:
@@ -67,16 +67,21 @@ class Place(
     def get_population_update(
             self,
             current_date: date
-            ) -> Tuple[List[Family], List[Family]]:
+            ) -> Tuple[Set[str], Set[str]]:
         days_to_go = (current_date - self.last_updated_date).days
         if days_to_go < 1:
             return
 
         fertility_rate = self.fertility_rate / DAYS_IN_YEAR
-        old_families = {family.id for family in self.families}
-        new_families = old_families.copy()
+
+        family_dir = self.restore_file.parent / 'Customer'
+        old_family_ids = {
+            family_restore_file.parent.name
+            for family_restore_file in family_dir.rglob('family.json*')
+        }
+        new_family_ids = old_family_ids.copy()
         for _ in range(days_to_go):
-            n_families = len(new_families)
+            n_families = len(new_family_ids)
 
             max_members = Family.random_max_n_members(
                 size=n_families,
@@ -105,9 +110,9 @@ class Place(
             )
 
             unmarried_adults: List[Family] = []
-            for family, max_members_, would_birth, new_born_male, \
+            for family_id, max_members_, would_birth, new_born_male, \
                     die_age, would_die, marry_age, would_marry in zip(
-                        new_families,
+                        new_family_ids,
                         max_members,
                         would_births,
                         new_born_males,
@@ -116,7 +121,10 @@ class Place(
                         marry_ages,
                         would_marries
                     ):
-                family: Family
+                family: Family = Family.restore(
+                    family_dir / family_id / 'family.json',
+                    tmp=True
+                )
                 max_members_: int
                 would_birth: bool
                 new_born_male: bool
@@ -153,23 +161,36 @@ class Place(
                             ) \
                             and age > marry_age \
                             and would_marry:
-                        unmarried_adults.append(person)
+                        unmarried_adults.append((person, family))
 
             # Marry the unmarried adults
             if len(unmarried_adults) > 0:
-                for male, female in self.match_adults(
-                        (adult for adult in unmarried_adults)
+                for (
+                        (male, male_family),
+                        (female, female_family)
+                        ) in self.match_adults(
+                            (adult for adult in unmarried_adults)
                         ):
-                    new_family = Family.from_marriage(male, female)
-                    new_families[new_family.id] = new_family
+                    new_family = Family.from_marriage(
+                        male,
+                        male_family,
+                        female,
+                        female_family
+                    )
+                    new_family.push_restore(
+                        family_dir
+                        / new_family.id
+                        / 'family.json'
+                    )
+                    new_family_ids.add(new_family.id)
 
-            new_families = {
-                id_: family
-                for id_, family in new_families.items()
+            new_family_ids = {
+                family_id
+                for family_id in new_family_ids
                 if family.n_members > 0
             }
 
-        return old_families, new_families
+        return old_family_ids, new_family_ids
 
     def register_birth(self, person: Family) -> None:
         prefix_id = (
@@ -200,7 +221,8 @@ class Place(
             'life_expectancy': self.life_expectancy,
             'marry_age': self.marry_age,
             'prefix_id_counts': self._prefix_id_counts,
-            'last_updated_date': self.last_updated_date
+            'last_updated_date': self.last_updated_date,
+            'rng_state': self.dump_rng_state()
         }
 
     @classmethod
@@ -211,13 +233,6 @@ class Place(
             tmp: bool,
             **kwargs
             ) -> Place:
-        base_dir = file.parent
-
-        families = [
-            Family.restore(base_dir / str(family_restore_file))
-            for family_restore_file in base_dir.rglob('Family_*/family.json')
-        ]
-
         obj = cls(
             attrs['code'],
             attrs['name'],
@@ -225,25 +240,24 @@ class Place(
             attrs['initial_population'],
             attrs['fertility_rate'],
             attrs['life_expectancy'],
-            attrs['marry_age'],
-            None,
-            families
+            attrs['marry_age']
         )
 
         obj._prefix_id_counts = attrs['prefix_id_counts']
+        obj.load_rng_state(attrs['rng_state'])
         return obj
 
     @staticmethod
     def match_adults(
-            adults: Iterable[Family]
-            ) -> Iterable[Tuple[Family, Family]]:
-        males: List[Family] = []
-        females: List[Family] = []
-        for adult in adults:
+            adults: Iterable[Tuple[Person, Family]]
+            ) -> Iterable[Tuple[Person, Family, Person, Family]]:
+        males: List[Tuple[Person, Family]] = []
+        females: List[Tuple[Person, Family]] = []
+        for adult, family in adults:
             if adult.gender == Gender.MALE:
-                males.append(adult)
+                males.append((adult, family))
             else:
-                females.append(adult)
+                females.append((adult, family))
 
         total_matches = min(len(males), len(females))
         return zip(males[:total_matches], females[:total_matches])

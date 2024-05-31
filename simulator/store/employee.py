@@ -13,7 +13,7 @@ from ..enums import (
     AgeGroup, Gender, FamilyStatus, OrderStatus,
     EmployeeAttendanceStatus, EmployeeShift, EmployeeStatus
 )
-from ..logging import store_logger
+from ..logging import store_logger, simulator_log_format
 from ..population import Person
 from .order import Order
 
@@ -43,8 +43,8 @@ class Employee(
             rng: np.random.RandomState = None
             ) -> None:
         super().__init__(
-            initial_datetime,
-            interval,
+            cast(initial_datetime, float),
+            cast(interval, float),
             seed=seed,
             rng=rng
         )
@@ -74,71 +74,66 @@ class Employee(
         )
 
     def step(self) -> Tuple[datetime, Union[datetime, None]]:
-        current_datetime, next_datetime = super().step()
+        self.parent.employee_steps += 1
+        current_step, next_step = super().step()
+        current_datetime = cast(current_step, datetime)
+
+        if current_step >= next_step:
+            raise
 
         # Schedule next day shift on the midnight
         if self.schedule_shift_start_datetime is None:
-            self.today_shift_start_datetime = None
-            self.today_shift_end_datetime = None
-
             self.schedule_shift_attendance(
                 self.parent.employee_shift_schedules[self.record_id],
                 current_datetime.date()
             )
-            self._next_step = self.schedule_shift_start_datetime
-
-            return current_datetime, self._next_step
+            self._next_step = cast(
+                self.schedule_shift_start_datetime,
+                float
+            )
+            return current_step, self._next_step
 
         # Begin shift
         elif self.status == EmployeeStatus.OFF \
                 and self.today_shift_start_datetime is None \
                 and self.schedule_shift_start_datetime <= current_datetime:
-            if current_datetime.hour == 0:
-                raise
-
-            store_logger.debug(
-                f'{current_datetime.isoformat()}'
-                f' - STORE {self.parent.place_name}'
-                f' - EMPLOYEE BEGIN SHIFT'
-                f'- {self.name}[{self.record_id}].'
-                f' Would end shift at '
-                f'{self.schedule_shift_end_datetime.isoformat()}.'
-            )
             self.begin_shift(current_datetime)
+            return current_step, next_step
 
         # Assign to be cashier, if there's an idle cashier machine
         elif self.status == EmployeeStatus.STARTING_SHIFT \
                 and self.parent.n_cashiers < self.parent.max_cashiers:
             self.parent.assign_cashier(self)
+            return current_step, next_step
 
         # Complete shift, if not busy
         # and there'll be enough cashiers in the store
-        elif self.status == EmployeeStatus.IDLE \
+        elif self.status in (
+                    EmployeeStatus.IDLE,
+                    EmployeeStatus.STARTING_SHIFT
+                ) \
                 and self.today_shift_end_datetime is None \
                 and self.schedule_shift_end_datetime <= current_datetime \
                 and (
-                    self.parent.n_cashiers
-                    + self.parent.total_active_shift_employees()
-                    - 1
-                ) > 0:
-            store_logger.debug(
-                f'{current_datetime.isoformat()}'
-                f' - STORE {self.parent.place_name}'
-                f' - EMPLOYEE COMPLETE SHIFT'
-                f'- {self.name}[{self.record_id}].'
-            )
+                    self.shift == EmployeeShift.SECOND or
+                    (
+                        self.parent.n_cashiers
+                        + self.parent.total_active_shift_employees()
+                        - 1
+                    ) > 0
+                ):
             self.complete_shift(current_datetime)
 
-            self._next_step = (
+            self._next_step = cast(
                 datetime(
                     current_datetime.year,
                     current_datetime.month,
                     current_datetime.day
                 )
-                + timedelta(days=1, hours=6)  # Wake up time
+                + timedelta(days=1, hours=6),  # Wake up time
+                float
             )
-
-            return current_datetime, self._next_step
+            return current_step, self._next_step
 
         # Wait for order from queue and assign it
         if self.current_order is None:
@@ -146,33 +141,32 @@ class Employee(
                     and self.parent.n_order_queue > 0:
                 self.parent.assign_order_queue(self)
 
-        # Checkout order
-        elif self.current_order.status == OrderStatus.QUEUING:
-            buyer_gender, buyer_age_group = None, None
-            if self._rng.random() > 0.05:
-                buyer_gender = self.current_order.buyer.gender
-                buyer_age_group = self.estimate_age_group(
-                    self.current_order.buyer,
-                    current_datetime.date()
+                buyer_gender, buyer_age_group = None, None
+                if self._rng.random() > 0.05:
+                    buyer_gender = self.current_order.buyer.gender
+                    buyer_age_group = self.estimate_age_group(
+                        self.current_order.buyer,
+                        current_datetime.date()
+                    )
+
+                self.status = EmployeeStatus.PROCESSING_ORDER
+                self.parent.remove_order_queue(self.current_order)
+                self.current_order.begin_checkout(
+                    store=self.parent,
+                    employee=self,
+                    buyer_gender=buyer_gender,
+                    buyer_age_group=buyer_age_group,
+                    current_datetime=current_datetime
                 )
 
-            self.status = EmployeeStatus.PROCESSING_ORDER
-            self.parent.remove_order_queue(self.current_order)
-            self.current_order.begin_checkout(
-                store=self.parent,
-                employee=self,
-                buyer_gender=buyer_gender,
-                buyer_age_group=buyer_age_group,
-                current_datetime=current_datetime
-            )
-
-            processing_time = self.calculate_checkout_time(self.current_order)
-            self._next_step = (
-                current_datetime
-                + timedelta(seconds=processing_time)
-            )
-
-            return current_datetime, self._next_step
+                processing_time = \
+                    self.calculate_checkout_time(self.current_order)
+                self._next_step = cast(
+                    current_datetime
+                    + timedelta(seconds=processing_time),
+                    float
+                )
+                return current_step, self._next_step
 
         # Wait for order payment
         elif self.current_order.status == OrderStatus.PROCESSING:
@@ -186,7 +180,7 @@ class Employee(
             self.status = EmployeeStatus.IDLE
             self.parent.total_orders += 1
 
-        return current_datetime, next_datetime
+        return current_step, next_step
 
     def schedule_shift_attendance(
             self,
@@ -216,25 +210,45 @@ class Employee(
             + self.parent.long_shift_hours
         )
 
-        return None
+        store_logger.debug(simulator_log_format(
+            f'STORE {self.parent.place_name} -',
+            f'[{self.record_id}]:',
+            f"Schedule today's {self.shift.name} shift at",
+            self.schedule_shift_start_datetime,
+            dt=self.current_datetime
+        ))
 
-    def begin_shift(self, curent_datetime: datetime) -> None:
+    def begin_shift(self, current_datetime: datetime) -> None:
         EmployeeAttendanceModel.create(
             employee=self.record.id,
             status=EmployeeAttendanceStatus.BEGIN_SHIFT.name,
-            created_datetime=curent_datetime
+            created_datetime=current_datetime
         )
         self.status = EmployeeStatus.STARTING_SHIFT
-        self.today_shift_start_datetime = curent_datetime
+        self.today_shift_start_datetime = current_datetime
+
+        store_logger.debug(simulator_log_format(
+            f'STORE {self.parent.place_name} -',
+            f'[{self.record_id}]:',
+            f"Begin today's {self.shift.name} shift until",
+            self.schedule_shift_end_datetime,
+            dt=self.current_datetime
+        ))
 
     def complete_shift(self, current_datetime: datetime) -> None:
+        store_logger.debug(simulator_log_format(
+            f'STORE {self.parent.place_name} -',
+            f'[{self.record_id}]:',
+            f"Completed today's {self.shift.name} shift.",
+            dt=current_datetime
+        ))
+
         EmployeeAttendanceModel.create(
             employee=self.record.id,
             status=EmployeeAttendanceStatus.COMPLETE_SHIFT.name,
             created_datetime=current_datetime
         )
         self.parent.dismiss_cashier(self)
-        self.status = EmployeeStatus.OFF
         self.today_shift_end_datetime = current_datetime
         self.schedule_shift_start_datetime = None
         self.schedule_shift_end_datetime = None
@@ -339,8 +353,8 @@ class Employee(
             content_rate,
             discipline_rate,
         )
-        obj._max_step = cast(max_step, datetime)
-        obj._next_step = cast(next_step, datetime)
+        obj._max_step = max_step
+        obj._next_step = next_step
 
         obj.status = attrs['status']
         obj.shift = attrs['shift']

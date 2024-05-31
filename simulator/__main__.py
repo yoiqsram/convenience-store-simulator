@@ -30,7 +30,6 @@ if __name__ == '__main__':
             interval=args.interval,
             interval_min=args.interval_min,
             interval_max=args.interval_max,
-            skip_step=args.skip_step,
             sync=not args.no_sync,
             checkpoint=args.checkpoint,
             workers=args.workers,

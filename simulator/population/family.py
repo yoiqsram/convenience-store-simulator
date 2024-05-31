@@ -23,9 +23,6 @@ class Family(
             _id: str = None
             ) -> None:
         self.members: List[Person] = list(members)
-        for member in self.members:
-            member.family = self
-
         self.spending_rate = float(spending_rate)
 
         self.__init_id__(_id)
@@ -70,15 +67,10 @@ class Family(
         ])
 
     def add(self, member: Person) -> None:
-        if member.family is not None:
-            raise ValueError()
-
         self.members.append(member)
-        member.family = self
 
     def remove(self, member: Person) -> None:
         self.members.remove(member)
-        member.family = None
 
     def birth(
             self,
@@ -205,18 +197,20 @@ class Family(
     def from_marriage(
             cls,
             male: Person,
-            female: Person
+            male_family: Family,
+            female: Person,
+            female_family: Family
             ) -> Family:
         if male.gender != Gender.MALE:
             raise ValueError()
         if female.gender != Gender.FEMALE:
             raise ValueError()
 
-        male_spending_rate = male.family.spending_rate
-        male.family.remove(male)
+        male_spending_rate = male_family.spending_rate
+        male_family.remove(male)
 
-        female_spending_rate = female.family.spending_rate
-        female.family.remove(female)
+        female_spending_rate = female_family.spending_rate
+        female_family.remove(female)
 
         new_family = cls(
             [male, female],

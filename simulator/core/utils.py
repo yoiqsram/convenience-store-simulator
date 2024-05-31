@@ -18,8 +18,8 @@ def cast(_value: Any, _type: type) -> Any:
         return bool(_value)
 
     elif _type in (date, datetime):
-        if isinstance(_value, int):
-            return _type.fromordinal(_value)
+        if isinstance(_value, (int, float)):
+            return _type.fromtimestamp(_value)
         elif isinstance(_value, str):
             return _type.fromisoformat(_value)
 
@@ -30,6 +30,12 @@ def cast(_value: Any, _type: type) -> Any:
     elif _type is timedelta \
             and isinstance(_value, (int, float)):
         return timedelta(seconds=_value)
+
+    elif isinstance(_value, (date, datetime)) and _type is float:
+        return _value.timestamp()
+
+    elif isinstance(_value, (date, datetime)) and _type is int:
+        return int(_value.timestamp())
 
     elif issubclass(_type, Enum):
         return getattr(_type, _value)

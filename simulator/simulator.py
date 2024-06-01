@@ -8,9 +8,9 @@ from typing import Any, Dict, Iterable, Tuple
 
 from .core import RandomDatetimeEnvironment
 from .core.utils import cast
-from .context import GlobalContext, DAYS_IN_YEAR
+from .context import GlobalContext  # , DAYS_IN_YEAR
 from .database import SubdistrictModel
-from .logging import simulator_logger, simulator_log_format
+from .logging import simulator_logger, store_logger, simulator_log_format
 from .population import Family, Place
 from .store import Customer, Store
 
@@ -118,32 +118,30 @@ class Simulator(
             if store.initial_step <= current_step
         ])
 
-        # @ 1 day - Daily update possibility of store growth
-        if current_datetime.day != past_datetime.day:
-            for random in self._rng.random(n_stores):
-                if random > self.store_growth_rate / DAYS_IN_YEAR:
-                    continue
+        # # @ 1 day - Daily update possibility of store growth
+        # if current_datetime.day != past_datetime.day:
+        #     for random in self._rng.random(n_stores):
+        #         if random > self.store_growth_rate / DAYS_IN_YEAR:
+        #             continue
 
-                try:
-                    new_store = self.generate_stores(
-                        1,
-                        GlobalContext.STORE_MARKET_POPULATION,
-                        current_datetime
-                    )[0]
-                    self.add_agent(new_store)
-                    simulator_logger.info(simulator_log_format(
-                        f"New store '{new_store.place_name}' has been built "
-                        f"with market population size "
-                        f"{new_store.total_market_population()}.",
-                        dt=current_datetime
-                    ))
+        #         try:
+        #             ...
+        #             self.add_agent(new_store)
+        #             simulator_logger.info(simulator_log_format(
+        #                 f"New store #{self.n_stores}",
+        #                 f"'{new_store.place_name}'",
+        #                 'has been built with market population size',
+        #                 f"{new_store.total_market_population()}.",
+        #                 dt=current_datetime
+        #             ))
 
-                # Possible error when a store has been exists in the same place
-                except Exception:
-                    simulator_logger.error(
-                        'Failed to build new store.',
-                        exc_info=True
-                    )
+        #         # Possible error when a store
+        #         # has been exists in the same place
+        #         except Exception:
+        #             simulator_logger.error(
+        #                 'Failed to build new store.',
+        #                 exc_info=True
+        #             )
 
         # @ 15 mins - Log synchronization between simulation
         # and the real/projected datetime
@@ -210,7 +208,7 @@ class Simulator(
                 if store.initial_step > current_step:
                     continue
 
-                simulator_logger.info(simulator_log_format(
+                store_logger.debug(simulator_log_format(
                     f"Store #{str(i).rjust(len(str(n_stores)), '0')}",
                     store.place_name,
                     '-', 'OPEN' if store.is_open() else 'CLOSE',
@@ -249,9 +247,10 @@ class Simulator(
 
         delay_days = self._rng.choice(build_range_days + 1, n)
 
-        for subdistrict_id, market_population_, \
+        for i, subdistrict_id, market_population_, \
                 fertility_rate_, life_expectancy_, marry_age_, \
                 delay_days_ in zip(
+                    range(1, n + 1),
                     subdistrict_ids,
                     market_populations,
                     fertility_rates,
@@ -307,17 +306,6 @@ class Simulator(
             store.created_datetime = initial_datetime
             self.add_agent(store)
 
-            # Prepare restore for employee
-            for employee in store.employees():
-                employee_dir = (
-                    store_dir
-                    / 'Employee'
-                    / employee.person.id
-                )
-                employee_dir.mkdir(parents=True, exist_ok=True)
-                employee.person.push_restore(employee_dir / 'person.json')
-                employee.push_restore(employee_dir / 'employee.json', tmp=True)
-
             # Populate place with families and customer data
             for family in Family.bulk_generate(
                     int(place.initial_population / 3.0),
@@ -338,11 +326,10 @@ class Simulator(
                     rng=place._rng
                 )
                 customer.push_restore(family_dir / 'customer.json', tmp=True)
-                store.add_agent(customer)
 
             store.push_restore(store_dir / 'store.json')
             simulator_logger.debug(
-                f"New store '{place.name}' is created and "
+                f"New store ({i}/{n}) '{place.name}' is created and "
                 f"the initial date is on '{store.initial_date}'. "
                 f'{(datetime.now() - _time_store).total_seconds():.1f}s.'
             )
@@ -417,8 +404,13 @@ class Simulator(
             _time = datetime.now()
             simulator_logger.info("Simulator is being backup...")
 
-            for store in self.stores():
+            for i, store in enumerate(self.stores(), 1):
+                _time_store = datetime.now()
                 store.update_market_population(self.current_datetime)
+                simulator_logger.info(
+                    f'Backup store ({i}/{self.n_stores}) {store.place_name}. '
+                    f'{(datetime.now() - _time_store).total_seconds():.1f}s.'
+                )
 
             super()._push_restore(file, tmp=tmp, **kwargs)
             simulator_logger.info(
@@ -455,7 +447,6 @@ class Simulator(
 
         store_ids = kwargs.get('store_ids')
         for store_restore_file in base_dir.rglob('Store/*/store.json'):
-            _time = datetime.now()
             if isinstance(store_ids, list) \
                     and store_restore_file.parent.name not in store_ids:
                 continue
@@ -466,10 +457,5 @@ class Simulator(
                 continue
 
             obj.add_agent(store)
-
-            simulator_logger.debug(
-                f"Loaded store '{store.place.name}'. "
-                f'{(datetime.now() - _time).total_seconds():.1f}s.'
-            )
 
         return obj

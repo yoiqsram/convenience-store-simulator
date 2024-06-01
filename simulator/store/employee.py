@@ -78,9 +78,6 @@ class Employee(
         current_step, next_step = super().step()
         current_datetime = cast(current_step, datetime)
 
-        if current_step >= next_step:
-            raise
-
         # Schedule next day shift on the midnight
         if self.schedule_shift_start_datetime is None:
             self.schedule_shift_attendance(
@@ -101,9 +98,16 @@ class Employee(
             return current_step, next_step
 
         # Assign to be cashier, if there's an idle cashier machine
-        elif self.status == EmployeeStatus.STARTING_SHIFT \
-                and self.parent.n_cashiers < self.parent.max_cashiers:
+        elif self.status == EmployeeStatus.STARTING_SHIFT:
+            if self.parent.n_cashiers == self.parent.max_cashiers:
+                return current_step, next_step
+
             self.parent.assign_cashier(self)
+            if self.parent.n_order_queue == 0:
+                self._next_step = self.schedule_shift_end_datetime.timestamp()
+                return current_step, self._next_step
+
+            self.parent.assign_order_queue(self)
             return current_step, next_step
 
         # Complete shift, if not busy
@@ -115,10 +119,9 @@ class Employee(
                 and self.today_shift_end_datetime is None \
                 and self.schedule_shift_end_datetime <= current_datetime \
                 and (
-                    self.shift == EmployeeShift.SECOND or
+                    self.parent.n_order_queue == 0 or
                     (
-                        self.parent.n_cashiers
-                        + self.parent.total_active_shift_employees()
+                        self.parent.total_active_shift_employees()
                         - 1
                     ) > 0
                 ):
@@ -135,42 +138,52 @@ class Employee(
             )
             return current_step, self._next_step
 
-        # Wait for order from queue and assign it
         if self.current_order is None:
-            if self.status == EmployeeStatus.IDLE \
-                    and self.parent.n_order_queue > 0:
-                self.parent.assign_order_queue(self)
+            self._next_step = self.schedule_shift_end_datetime.timestamp()
+            return current_step, self._next_step
 
-                buyer_gender, buyer_age_group = None, None
-                if self._rng.random() > 0.05:
-                    buyer_gender = self.current_order.buyer.gender
-                    buyer_age_group = self.estimate_age_group(
-                        self.current_order.buyer,
-                        current_datetime.date()
-                    )
-
-                self.status = EmployeeStatus.PROCESSING_ORDER
-                self.parent.remove_order_queue(self.current_order)
-                self.current_order.begin_checkout(
-                    store=self.parent,
-                    employee=self,
-                    buyer_gender=buyer_gender,
-                    buyer_age_group=buyer_age_group,
-                    current_datetime=current_datetime
+        # Process the assigned order
+        elif self.current_order.status == OrderStatus.QUEUING:
+            buyer_gender, buyer_age_group = None, None
+            if self._rng.random() > 0.05:
+                buyer_gender = self.current_order.buyer.gender
+                buyer_age_group = self.estimate_age_group(
+                    self.current_order.buyer,
+                    current_datetime.date()
                 )
 
-                processing_time = \
-                    self.calculate_checkout_time(self.current_order)
-                self._next_step = cast(
-                    current_datetime
-                    + timedelta(seconds=processing_time),
-                    float
-                )
-                return current_step, self._next_step
+            self.status = EmployeeStatus.PROCESSING_ORDER
+            self.parent.remove_order_queue(self.current_order)
+            self.current_order.begin_checkout(
+                store=self.parent,
+                employee=self,
+                buyer_gender=buyer_gender,
+                buyer_age_group=buyer_age_group,
+                current_datetime=current_datetime
+            )
 
-        # Wait for order payment
+            processing_time = \
+                self.calculate_checkout_time(self.current_order)
+            self.current_order.checkout_end_datetime = (
+                current_datetime
+                + timedelta(seconds=processing_time)
+            )
+            self._next_step = cast(
+                self.current_order.checkout_end_datetime,
+                float
+            )
+            return current_step, self._next_step
+
+        # Complete checkout
         elif self.current_order.status == OrderStatus.PROCESSING:
             self.current_order.complete_checkout(current_datetime)
+
+        # Waiting for payment
+        elif self.current_order.status == OrderStatus.DOING_PAYMENT \
+                and self.current_order.complete_datetime is not None:
+            self._next_step = \
+                self.current_order.complete_datetime.timestamp()
+            return current_step, self._next_step
 
         # Complete order
         elif self.current_order.status == OrderStatus.PAID:
@@ -179,6 +192,11 @@ class Employee(
 
             self.status = EmployeeStatus.IDLE
             self.parent.total_orders += 1
+
+            # Check for another order in queue
+            if self.parent.n_order_queue > 0:
+                self.parent.assign_order_queue(self)
+                return current_step, self._next_step
 
         return current_step, next_step
 
@@ -325,11 +343,6 @@ class Employee(
             self.today_shift_start_datetime,
             self.today_shift_end_datetime
         ]
-
-        attrs['order_restore_file'] = None
-        if self.current_order is not None:
-            attrs['order_restore_file'] = self.current_order.restore_file.name
-
         return attrs
 
     @classmethod
@@ -365,13 +378,6 @@ class Employee(
             obj.today_shift_start_datetime,
             obj.today_shift_end_datetime
         ) = attrs['shift_datetimes']
-
-        if attrs['order_restore_file'] is not None:
-            obj.current_order = Order.restore(
-                file.parents[2]
-                / 'Order'
-                / attrs['order_rerstore_file']
-            )
         return obj
 
     @classmethod

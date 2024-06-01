@@ -1,4 +1,6 @@
 import argparse
+import os
+import shutil
 from datetime import datetime
 from typing import Union
 
@@ -38,6 +40,33 @@ def init_simulator(
     if not rewrite and restore_file.exists():
         raise FileExistsError()
 
+    database: Database = StoreModel._meta.database
+    if rewrite and restore_dir.exists():
+        _time_rewrite = datetime.now()
+        simulator_logger.info('Removing old simulator data...')
+
+        shutil.rmtree(restore_dir)
+        restore_dir.mkdir()
+
+        if isinstance(database, SqliteDatabase):
+            if os.path.exists(database.database):
+                os.remove(database.database)
+
+            backup_database = str(database.database) + '.backup'
+            if os.path.exists(backup_database):
+                shutil.copy(
+                    backup_database,
+                    database.database
+                )
+
+        else:
+            raise FileExistsError()
+
+        simulator_logger.info(
+            f'Old simulator data has been removed. '
+            f'{(datetime.now() - _time_rewrite).total_seconds():.1f}s'
+        )
+
     # Create simulator database if not available
     if StoreModel.table_exists():
         if not rewrite and StoreModel.select().count() > 1:
@@ -45,12 +74,11 @@ def init_simulator(
 
     else:
         _time_db = datetime.now()
-        initial_datetime = (
+        initial_datetime = datetime(
             GlobalContext.INITIAL_DATE.year,
-            GlobalContext.INITIAL_DATE.moth,
+            GlobalContext.INITIAL_DATE.month,
             GlobalContext.INITIAL_DATE.day
         )
-        database: Database = StoreModel._meta.database
         simulator_logger.info(
             f"Preparing {type(database).__name__.split('Database')[0]} "
             "database for the simulator..."
@@ -62,7 +90,6 @@ def init_simulator(
         )
 
         if isinstance(database, SqliteDatabase):
-            import shutil
             shutil.copy(
                 database.database,
                 str(database.database) + '.backup'

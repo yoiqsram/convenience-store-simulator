@@ -18,10 +18,12 @@ from ..database import (
     MODELS
 )
 from ..enums import EmployeeShift, EmployeeStatus
+from ..logging import store_logger, simulator_log_format
 from ..population import Place
 from .customer import Customer
-from .order import Order, OrderStatus
+from .order import Order
 from .employee import Employee
+from .manager import Manager
 
 
 class Store(
@@ -51,6 +53,12 @@ class Store(
         )
 
         self.place = place
+
+        self.manager = Manager(
+            self.initial_step,
+            self.interval
+        )
+        self.add_agent(self.manager)
 
         # Add initial employees
         self._employees: List[Employee] = []
@@ -83,6 +91,7 @@ class Store(
             max_cashiers = GlobalContext.STORE_MAX_CASHIERS
         self.max_cashiers = max_cashiers
 
+        self._customers: List[Customer] = []
         self._order_queue: Deque[Order] = deque(maxlen=max_queue)
 
         place_record: SubdistrictModel = self.place.record
@@ -169,12 +178,39 @@ class Store(
         except Exception:
             pass
 
+    def potential_customers(self) -> Iterable[Customer]:
+        customer_dir = self.restore_file.parent / 'Customer'
+        for file in customer_dir.rglob('customer.json'):
+            customer = Customer.restore(
+                customer_dir / str(file),
+                tmp=True,
+                rng=self._rng
+            )
+            yield customer
+
+    @property
+    def n_customers(self) -> int:
+        return len(self._customers)
+
+    def customers(self) -> Iterable[Customer]:
+        for customer in self._customers:
+            yield customer
+
+    def add_customer(self, customer: Customer) -> None:
+        self._customers.append(customer)
+        self.add_agent(customer)
+
+    def clear_customers(self) -> None:
+        self.remove_agents(self._customers)
+        self._customers = []
+
     def assign_order_queue(self, employee: Employee) -> None:
         if len(self._order_queue) == 0:
             raise IndexError("There's no queue in the moment.")
 
         employee.current_order = self._order_queue.popleft()
         employee.status = EmployeeStatus.PROCESSING_ORDER
+        employee._next_step = self.next_step
 
     def is_open(self) -> bool:
         for employee in self.employees():
@@ -189,8 +225,16 @@ class Store(
         return len(self._order_queue) == self._order_queue.maxlen
 
     def add_order_queue(self, order: Order) -> None:
-        if order not in self._order_queue:
-            self._order_queue.append(order)
+        if order in self._order_queue:
+            return
+
+        self._order_queue.append(order)
+
+        self._rng.shuffle(self._cashiers)
+        for employee in self.cashiers():
+            if employee.current_order is None:
+                self.assign_order_queue(employee)
+                return
 
     def remove_order_queue(self, order: Order) -> None:
         try:
@@ -203,48 +247,6 @@ class Store(
         current_step, next_step = super().step()
         current_datetime = cast(current_step, datetime)
         current_date = current_datetime.date()
-        next_datetime = cast(next_step, datetime)
-
-        if current_step >= next_step:
-            raise
-
-        if self.n_employees < self.max_employees:
-            new_employees = []
-            for _ in range(self.max_employees - self.n_employees):
-                employee = Employee.generate(
-                    datetime(
-                        current_date.year,
-                        current_date.month,
-                        current_date.day
-                    ) + timedelta(days=1, hours=6),
-                    self.interval,
-                    rng=self._rng
-                )
-                employee.created_datetime = current_datetime
-
-                employee_dir = (
-                    self.restore_file.parent
-                    / 'Employee'
-                    / employee.person.id
-                )
-                employee_dir.mkdir(parents=True, exist_ok=True)
-                employee.person.push_restore(employee_dir / 'person.json')
-                employee.push_restore(
-                    employee_dir / 'employee.json',
-                    tmp=True
-                )
-
-                self.add_employee(employee)
-                new_employees.append(employee)
-
-            self.schedule_shifts(
-                date(
-                    current_date.year,
-                    current_date.month,
-                    current_date.day
-                ),
-                new_employees
-            )
 
         # Daily update
         if previous_datetime.day != current_datetime.day:
@@ -252,68 +254,38 @@ class Store(
             self.total_canceled_orders = 0
             self.customer_steps = 0
             self.employee_steps = 0
+            self.clear_customers()
+
+        if self.n_customers == 0:
+            _time = datetime.now()
+
+            for customer in self.potential_customers():
+                if customer.next_date <= current_date:
+                    self.add_customer(customer)
+
+            store_logger.info(simulator_log_format(
+                f'Store {self.place_name} -',
+                f'{self.n_customers} customer(s) is cached.',
+                f'{(datetime.now() - _time).total_seconds():.1f}s.',
+                dt=current_datetime
+            ))
 
         # Update schedule working shifts midnight date 1st
         if current_datetime.month != previous_datetime.month:
             self.schedule_shifts(current_date, self._employees)
-
-        return current_step, next_step
-
-        for employee in self.employees():
-            if employee.status in (
-                    EmployeeStatus.STARTING_SHIFT,
-                    EmployeeStatus.PROCESSING_ORDER
-                    ):
-                return current_step, next_step
-
-        # Skip to the nearest customer step
-        min_agent_step = None
-        for agent in self.agents():
-            if isinstance(agent, Customer):
-                agent_next_step = agent.next_step
-
-            elif agent.schedule_shift_start_datetime is not None \
-                    and agent.schedule_shift_start_datetime > next_datetime \
-                    and agent.today_shift_start_datetime is None:
-                agent_next_step = \
-                    agent.schedule_shift_start_datetime.timestamp()
-
-            elif agent.schedule_shift_end_datetime is not None \
-                    and agent.schedule_shift_end_datetime > next_datetime \
-                    and agent.today_shift_end_datetime is None:
-                agent_next_step = \
-                    agent.schedule_shift_end_datetime.timestamp()
-
-            else:
-                continue
-
-            if min_agent_step is None \
-                    or agent_next_step < min_agent_step:
-                min_agent_step = agent_next_step
-
-        if min_agent_step is not None:
-            self._next_step = min_agent_step
 
         return current_step, self._next_step
 
     def update_market_population(self, current_datetime: datetime) -> None:
         family_dir = self.restore_file.parent / 'Customer'
 
-        old_family_ids, new_family_ids = \
+        family_ids_to_be_removed, family_ids_to_be_added = \
             self.place.get_population_update(current_datetime.date())
 
-        old_customers = {
-            agent.family.id: agent
-            for agent in self.agents()
-            if isinstance(agent, Customer)
-        }
-
-        family_ids_to_be_removed = old_family_ids - new_family_ids
         for family_id in family_ids_to_be_removed:
-            self.remove_agent(old_customers[family_id])
             shutil.rmtree(family_dir / family_id)
 
-        for family_id in new_family_ids:
+        for family_id in family_ids_to_be_added:
             customer_initial_datetime = self.initial_datetime
             if current_datetime > self.initial_datetime:
                 customer_initial_datetime = current_datetime
@@ -325,9 +297,9 @@ class Store(
             customer.push_restore(
                 family_dir
                 / family_id
-                / 'customer.json'
+                / 'customer.json',
+                tmp=True
             )
-            self.add_agent(customer)
 
         self.place.push_restore()
         self.push_restore()
@@ -422,7 +394,6 @@ class Store(
             for employee in self.employees()
         }
 
-        attrs['total_orders'] = self.total_orders
         return attrs
 
     def _push_restore(
@@ -432,11 +403,11 @@ class Store(
             **kwargs
             ) -> None:
         if not tmp:
-            for agent in self.agents():
-                if hasattr(agent, 'current_order') \
-                        and agent.current_order is not None:
-                    agent.current_order.push_restore()
-                agent.push_restore()
+            for employee in self.employees():
+                employee.push_restore()
+
+            for customer in self.potential_customers():
+                customer.push_restore()
 
         super()._push_restore(file, tmp=tmp, **kwargs)
 
@@ -465,9 +436,6 @@ class Store(
                 .where(model.created_datetime > obj.current_datetime)\
                 .execute()
 
-        order_ids = set()
-        order_dir = file.parent / 'Order'
-
         employee_dir = base_dir / 'Employee'
         for employee_restore_file in (
                 employee_dir.glob('*/employee.json')
@@ -487,29 +455,4 @@ class Store(
             if is_cashier:
                 obj._cashiers.append(employee)
 
-            if employee.current_order is not None:
-                order_ids.add(
-                    employee.current_order.restore_file.name.split('.')[0]
-                )
-
-        customer_dir = base_dir / 'Customer'
-        for customer_restore_file in customer_dir.glob('*/customer.json'):
-            customer_restore_file = str(customer_restore_file)
-            customer = Customer.restore(
-                customer_dir / customer_restore_file,
-                rng=obj._rng
-            )
-            obj.add_agent(customer)
-            if customer.current_order is not None:
-                order_ids.add(
-                    customer.current_order.restore_file.name.split('.')[0]
-                )
-                if customer.current_order.status == OrderStatus.QUEUING:
-                    obj._order_queue.append(customer.current_order)
-
-        for order_restore_file in order_dir.rglob('*.json*'):
-            if order_restore_file not in order_ids:
-                order_restore_file.unlink()
-
-        obj.total_orders = attrs['total_orders']
         return obj

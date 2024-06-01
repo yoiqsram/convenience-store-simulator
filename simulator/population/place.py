@@ -75,13 +75,13 @@ class Place(
         fertility_rate = self.fertility_rate / DAYS_IN_YEAR
 
         family_dir = self.restore_file.parent / 'Customer'
-        old_family_ids = {
-            family_restore_file.parent.name
-            for family_restore_file in family_dir.rglob('family.json*')
+        old_families = {
+            family.id: family
+            for family in self.families
         }
-        new_family_ids = old_family_ids.copy()
+        new_families = old_families.copy()
         for _ in range(days_to_go):
-            n_families = len(new_family_ids)
+            n_families = len(new_families)
 
             max_members = Family.random_max_n_members(
                 size=n_families,
@@ -110,9 +110,9 @@ class Place(
             )
 
             unmarried_adults: List[Family] = []
-            for family_id, max_members_, would_birth, new_born_male, \
+            for family, max_members_, would_birth, new_born_male, \
                     die_age, would_die, marry_age, would_marry in zip(
-                        new_family_ids,
+                        new_families.values(),
                         max_members,
                         would_births,
                         new_born_males,
@@ -121,10 +121,7 @@ class Place(
                         marry_ages,
                         would_marries
                     ):
-                family: Family = Family.restore(
-                    family_dir / family_id / 'family.json',
-                    tmp=True
-                )
+                family: Family
                 max_members_: int
                 would_birth: bool
                 new_born_male: bool
@@ -134,9 +131,10 @@ class Place(
                 would_marry: bool
 
                 # Born new babies
+                initital_n_members = family.n_members
                 if family.n_parents == 2 \
                         and family.youngest_age(current_date) > 1.0:
-                    if family.n_members < max_members_ \
+                    if initital_n_members < max_members_ \
                             and would_birth:
                         if new_born_male:
                             gender = Gender.MALE
@@ -148,6 +146,7 @@ class Place(
                             gender=gender,
                             rng=self._rng
                         )
+                        family.push_restore()
 
                 for person in family.members:
                     age = person.age(current_date)
@@ -163,6 +162,9 @@ class Place(
                             and would_marry:
                         unmarried_adults.append((person, family))
 
+                if initital_n_members != family.n_members:
+                    family.push_restore()
+
             # Marry the unmarried adults
             if len(unmarried_adults) > 0:
                 for (
@@ -177,20 +179,26 @@ class Place(
                         female,
                         female_family
                     )
+                    male_family.push_restore()
+                    female_family.push_restore()
                     new_family.push_restore(
                         family_dir
                         / new_family.id
                         / 'family.json'
                     )
-                    new_family_ids.add(new_family.id)
+                    new_families[new_family.id] = new_family
 
-            new_family_ids = {
-                family_id
-                for family_id in new_family_ids
+            new_families = {
+                family_id: family
+                for family_id, family in new_families.items()
                 if family.n_members > 0
             }
 
-        return old_family_ids, new_family_ids
+        old_family_ids = set(old_families.keys())
+        new_family_ids = set(new_families.keys())
+        family_ids_to_be_removed = old_family_ids - new_family_ids
+        family_ids_to_be_added = new_family_ids - old_family_ids
+        return family_ids_to_be_removed, family_ids_to_be_added
 
     def register_birth(self, person: Family) -> None:
         prefix_id = (

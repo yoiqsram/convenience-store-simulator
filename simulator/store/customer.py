@@ -187,7 +187,6 @@ class Customer(
         current_step, next_step = super().step()
         current_datetime = cast(current_step, datetime)
         current_date = current_datetime.date()
-        next_datetime = cast(next_step, datetime)
 
         if self.current_order is None:
             family = self.family
@@ -257,22 +256,13 @@ class Customer(
                     self.calculate_next_order_datetime(current_date),
                     float
                 )
+                self.push_restore(tmp=True)
                 return current_step, self._next_step
 
             # Collecting order products in the store
             order_skus = self.get_order_skus(order_products)
             self.current_order = Order(order_skus, current_datetime)
             self.current_order.buyer = buyer
-
-            order_dir = (
-                self.parent.restore_file.parent
-                / 'Order'
-            )
-            order_dir.mkdir(exist_ok=True)
-            self.current_order.push_restore(
-                order_dir / f'{self.current_order.id}.json',
-                tmp=True
-            )
 
             collection_time = \
                 self.calculate_collection_time(self.current_order)
@@ -286,6 +276,15 @@ class Customer(
         # Queuing order
         elif self.current_order.status == OrderStatus.COLLECTING:
             self.current_order.queue(self.parent, current_datetime)
+            # self._next_step = current_step + 60
+            # return current_step, self._next_step
+
+        # Waiting for checkout process
+        elif self.current_order.status == OrderStatus.PROCESSING \
+                and self.current_order.checkout_end_datetime is not None:
+            self._next_step = \
+                self.current_order.checkout_end_datetime.timestamp()
+            return current_step, self._next_step
 
         # Paying order
         elif self.current_order.status == OrderStatus.WAITING_PAYMENT:
@@ -299,12 +298,15 @@ class Customer(
                 self.current_order,
                 data.payment_method_time
             )
-            self._next_step = cast(
+            self.current_order.complete_datetime = (
                 current_datetime
-                + timedelta(seconds=payment_time),
-                float
+                + timedelta(seconds=payment_time)
             )
 
+            self._next_step = cast(
+                self.current_order.complete_datetime,
+                float
+            )
             return current_step, self._next_step
 
         # Complete the payment
@@ -318,9 +320,10 @@ class Customer(
                 self.calculate_next_order_datetime(current_date),
                 float
             )
+            self.push_restore(tmp=True)
             return current_step, self._next_step
 
-        return current_step, next_datetime
+        return current_step, next_step
 
     def calculate_next_order_datetime(self, current_date: date) -> datetime:
         order_datetime = (
@@ -467,17 +470,6 @@ class Customer(
         payment_time = payment_method_time[order.payment_method]
         return payment_time
 
-    @property
-    def restore_attrs(self) -> Dict[str, Any]:
-        attrs = super().restore_attrs
-
-        if self.current_order is not None:
-            attrs['order_restore_file'] = \
-                self.current_order.restore_file\
-                    .relative_to(GlobalContext.BASE_DIR)
-
-        return attrs
-
     def _push_restore(
             self,
             file: Path = None,
@@ -499,15 +491,9 @@ class Customer(
         initial_step, interval, max_step, next_step = attrs['base_params']
         obj = cls(
             initial_step,
-            interval
+            interval,
+            rng=kwargs.get('rng')
         )
         obj._max_step = max_step
         obj._next_step = next_step
-
-        if 'order_restore_file' in attrs:
-            obj.current_order = Order.restore(
-                file.parents[1]
-                / 'Order'
-                / attrs['order_restore_file']
-            )
         return obj

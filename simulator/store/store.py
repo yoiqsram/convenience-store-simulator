@@ -274,32 +274,40 @@ class Store(
         return current_step, self._next_step
 
     def update_market_population(self, current_datetime: datetime) -> None:
-        family_dir = self.restore_file.parent / 'Customer'
+        customer_initial_datetime = self.initial_datetime
+        if current_datetime > self.initial_datetime:
+            customer_initial_datetime = current_datetime
 
-        family_ids_to_be_removed, family_ids_to_be_added = \
+        families = \
             self.place.get_population_update(current_datetime.date())
 
-        for family_id in family_ids_to_be_removed:
-            shutil.rmtree(family_dir / family_id)
+        for family in families:
+            if family.n_members == 0:
+                shutil.rmtree(family.restore_file.parent)
+                continue
 
-        for family_id in family_ids_to_be_added:
-            customer_initial_datetime = self.initial_datetime
-            if current_datetime > self.initial_datetime:
-                customer_initial_datetime = current_datetime
-            customer = Customer(
-                customer_initial_datetime,
-                self.interval,
-                rng=self._rng
+            family.push_restore()
+
+            customer_restore_file = (
+                family.restore_file.parent
+                / 'customer.json'
             )
-            customer.push_restore(
-                family_dir
-                / family_id
-                / 'customer.json',
-                tmp=True
-            )
+            if not customer_restore_file.exists():
+                customer = Customer(
+                    customer_initial_datetime,
+                    self.interval,
+                    rng=self._rng
+                )
+                customer.restore_file = customer_restore_file
+            else:
+                customer = Customer.restore(
+                    customer_restore_file,
+                    tmp=True
+                )
+
+            customer.push_restore()
 
         self.place.push_restore()
-        self.push_restore()
 
     def schedule_shifts(
             self,
@@ -400,11 +408,10 @@ class Store(
             **kwargs
             ) -> None:
         if not tmp:
+            self.update_market_population(self.current_datetime)
+
             for employee in self.employees():
                 employee.push_restore()
-
-            for customer in self.potential_customers():
-                customer.push_restore()
 
         super()._push_restore(file, tmp=tmp, **kwargs)
 
@@ -413,7 +420,7 @@ class Store(
         base_dir = file.parent
 
         initial_step, interval, max_step, \
-            next_step, skip_step = attrs['base_params']
+            current_step, next_step, skip_step = attrs['base_params']
         max_employees, max_cashiers, max_queue = attrs['max_params']
         place = Place.restore(base_dir / 'place.json')
         obj = cls(
@@ -426,6 +433,7 @@ class Store(
             rng=place._rng
         )
         obj._max_step = max_step
+        obj._current_step = current_step
         obj._next_step = next_step
 
         for model in MODELS:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Iterable, Set, Tuple
+from typing import Any, Dict, List, Iterable, Tuple
 
 from ..core import ReprMixin, RandomGeneratorMixin
 from ..core.restore import RestorableMixin
@@ -44,11 +44,15 @@ class Place(
             unique_identifiers={'code': self.code}
         )
 
-    @property
-    def families(self) -> Iterable[Family]:
+    def family_restore_files(self) -> Iterable[Path]:
         base_dir = self.restore_file.parent
         for restore_file in base_dir.rglob('Customer/*/family.json'):
-            yield Family.restore(base_dir / str(restore_file), tmp=True)
+            yield base_dir / str(restore_file)
+
+    @property
+    def families(self) -> Iterable[Family]:
+        for restore_file in self.family_restore_files():
+            yield Family.restore(restore_file, tmp=True)
 
     @property
     def n_families(self) -> int:
@@ -67,19 +71,12 @@ class Place(
     def get_population_update(
             self,
             current_date: date
-            ) -> Tuple[Set[str], Set[str]]:
-        days_to_go = (current_date - self.last_updated_date).days
-        if days_to_go < 1:
-            return
+            ) -> List[Family]:
+        old_families = list(self.families)
+        new_families = old_families.copy()
 
         fertility_rate = self.fertility_rate / DAYS_IN_YEAR
-
-        family_dir = self.restore_file.parent / 'Customer'
-        old_families = {
-            family.id: family
-            for family in self.families
-        }
-        new_families = old_families.copy()
+        days_to_go = (current_date - self.last_updated_date).days
         for _ in range(days_to_go):
             n_families = len(new_families)
 
@@ -112,7 +109,7 @@ class Place(
             unmarried_adults: List[Family] = []
             for family, max_members_, would_birth, new_born_male, \
                     die_age, would_die, marry_age, would_marry in zip(
-                        new_families.values(),
+                        new_families,
                         max_members,
                         would_births,
                         new_born_males,
@@ -130,6 +127,10 @@ class Place(
                 marry_age: float
                 would_marry: bool
 
+                # Skip zero families
+                if family.n_members == 0:
+                    continue
+
                 # Born new babies
                 initital_n_members = family.n_members
                 if family.n_parents == 2 \
@@ -146,7 +147,6 @@ class Place(
                             gender=gender,
                             rng=self._rng
                         )
-                        family.push_restore()
 
                 for person in family.members:
                     age = person.age(current_date)
@@ -162,9 +162,6 @@ class Place(
                             and would_marry:
                         unmarried_adults.append((person, family))
 
-                if initital_n_members != family.n_members:
-                    family.push_restore()
-
             # Marry the unmarried adults
             if len(unmarried_adults) > 0:
                 for (
@@ -179,26 +176,14 @@ class Place(
                         female,
                         female_family
                     )
-                    male_family.push_restore()
-                    female_family.push_restore()
-                    new_family.push_restore(
-                        family_dir
+                    new_family.restore_file = (
+                        male_family.restore_file.parents[1]
                         / new_family.id
                         / 'family.json'
                     )
-                    new_families[new_family.id] = new_family
+                    new_families.append(new_family)
 
-            new_families = {
-                family_id: family
-                for family_id, family in new_families.items()
-                if family.n_members > 0
-            }
-
-        old_family_ids = set(old_families.keys())
-        new_family_ids = set(new_families.keys())
-        family_ids_to_be_removed = old_family_ids - new_family_ids
-        family_ids_to_be_added = new_family_ids - old_family_ids
-        return family_ids_to_be_removed, family_ids_to_be_added
+        return new_families
 
     def register_birth(self, person: Family) -> None:
         prefix_id = (

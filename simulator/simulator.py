@@ -12,7 +12,7 @@ from .context import GlobalContext  # , DAYS_IN_YEAR
 from .database import SubdistrictModel
 from .logging import simulator_logger, store_logger, simulator_log_format
 from .population import Family, Place
-from .store import Customer, Store
+from .store import Store
 
 
 class Simulator(
@@ -321,13 +321,6 @@ class Simulator(
                 family_dir.mkdir(parents=True, exist_ok=True)
                 family.push_restore(family_dir / 'family.json')
 
-                customer = Customer(
-                    store_initial_datetime,
-                    self.interval,
-                    rng=place._rng
-                )
-                customer.push_restore(family_dir / 'customer.json', tmp=True)
-
             store.push_restore(store_dir / 'store.json')
             simulator_logger.debug(
                 f"New store ({i}/{n}) '{place.name}' is created and "
@@ -407,7 +400,7 @@ class Simulator(
 
             for i, store in enumerate(self.stores(), 1):
                 _time_store = datetime.now()
-                store.update_market_population(self.current_datetime)
+                store.push_restore()
                 simulator_logger.info(
                     f'Backup store ({i}/{self.n_stores}) {store.place_name}. '
                     f'{(datetime.now() - _time_store).total_seconds():.1f}s.'
@@ -432,7 +425,7 @@ class Simulator(
         base_dir = file.parent
 
         initial_step, interval, max_step, \
-            next_step, skip_step, speed = attrs['base_params']
+            current_step, next_step, skip_step, speed = attrs['base_params']
         obj = cls(
             initial_step,
             interval,
@@ -442,6 +435,7 @@ class Simulator(
             0,
             attrs['store_growth_rate']
         )
+        obj._current_step = current_step
         obj._next_step = next_step
         obj._real_initial_datetime = attrs['real_initial_datetime']
         obj.load_rng_state(attrs['rng_state'])

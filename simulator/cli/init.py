@@ -58,6 +58,7 @@ def init_simulator(
                     backup_database,
                     database.database
                 )
+                simulator_logger.info('Use backup database.')
 
         else:
             raise FileExistsError()

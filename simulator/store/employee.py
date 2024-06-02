@@ -345,7 +345,8 @@ class Employee(
 
     @classmethod
     def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Employee:
-        initial_step, interval, max_step, next_step = attrs['base_params']
+        initial_step, interval, max_step, \
+            current_step, next_step = attrs['base_params']
         age_recognition_rate, counting_skill_rate, \
             content_rate, discipline_rate = \
             attrs['skill_params']
@@ -365,6 +366,7 @@ class Employee(
             discipline_rate,
         )
         obj._max_step = max_step
+        obj._current_step = current_step
         obj._next_step = next_step
 
         obj.status = attrs['status']

@@ -72,6 +72,7 @@ class Agent(
                 self._initial_step,
                 self._interval,
                 self._max_step,
+                self._current_step,
                 self._next_step
             ]
         }

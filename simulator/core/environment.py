@@ -180,7 +180,7 @@ class DatetimeEnvironment(
         while next_datetime is not None \
                 and (
                     max_datetime is None
-                    or max_datetime >= next_datetime
+                    or max_datetime > next_datetime
                 ):
             _, next_step = self.step_await(sync=sync, *args, **kwargs)
             next_datetime = cast(next_step, datetime)

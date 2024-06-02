@@ -503,12 +503,14 @@ class Customer(
 
     @classmethod
     def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Customer:
-        initial_step, interval, max_step, next_step = attrs['base_params']
+        initial_step, interval, max_step, \
+            current_step, next_step = attrs['base_params']
         obj = cls(
             initial_step,
             interval,
             rng=kwargs.get('rng')
         )
         obj._max_step = max_step
+        obj._current_step = current_step
         obj._next_step = next_step
         return obj

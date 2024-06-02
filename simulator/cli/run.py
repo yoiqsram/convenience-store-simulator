@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from pathlib import Path
 from typing import List
 
@@ -50,7 +51,7 @@ def add_run_parser(subparsers) -> None:
     parser.add_argument(
         '--checkpoint',
         default='monthly',
-        choices=('hourly', 'daily', 'weekly', 'biweekly', 'monthly'),
+        choices=('daily', 'weekly', 'biweekly', 'monthly'),
         help='Run iteratively without simulating (scaled) time interval.'
     )
     parser.add_argument(
@@ -78,6 +79,60 @@ def clean_temporary_files(restore_dir: Path) -> None:
         f"Temporary files have been cleaned. "
         f'{(datetime.now() - _time).total_seconds():.1f}s'
     )
+
+
+def get_next_checkpoint(
+        current_datetime: datetime,
+        checkpoint: str
+        ) -> datetime:
+    if checkpoint == 'daily':
+        checkpoint_datetime = (
+            datetime(
+                current_datetime.year,
+                current_datetime.month,
+                current_datetime.day
+            )
+            + timedelta(days=1)
+        )
+
+    elif checkpoint == 'weekly':
+        checkpoint_datetime = (
+            datetime(
+                current_datetime.year,
+                current_datetime.month,
+                current_datetime.day
+            )
+            + timedelta(
+                days=7 - current_datetime.weekday()
+            )
+        )
+
+    elif checkpoint == 'biweekly':
+        checkpoint_datetime = (
+            datetime(
+                current_datetime.year,
+                current_datetime.month,
+                current_datetime.day
+            )
+            + timedelta(
+                days=14 - current_datetime.weekday()
+            )
+        )
+
+    elif checkpoint == 'monthly':
+        checkpoint_datetime = (
+            datetime(
+                current_datetime.year,
+                current_datetime.month,
+                current_datetime.day
+            )
+            + relativedelta(months=1)
+        )
+
+    else:
+        raise NotImplementedError()
+
+    return checkpoint_datetime
 
 
 def run_simulator(
@@ -119,19 +174,10 @@ def run_simulator(
         simulator.speed = speed
 
     max_datetime = cast(max_datetime, datetime)
-
-    if checkpoint == 'hourly':
-        checkpoint_interval = timedelta(hours=1)
-    elif checkpoint == 'daily':
-        checkpoint_interval = timedelta(days=1)
-    elif checkpoint == 'weekly':
-        checkpoint_interval = timedelta(days=7)
-    elif checkpoint == 'biweekly':
-        checkpoint_interval = timedelta(days=14)
-    else:
-        checkpoint_interval = timedelta(days=30)
-
-    max_datetime_ = simulator.current_datetime + checkpoint_interval
+    max_datetime_ = get_next_checkpoint(
+        simulator.current_datetime,
+        checkpoint
+    )
     if max_datetime is not None \
             and max_datetime < max_datetime_:
         max_datetime_ = max_datetime
@@ -146,3 +192,8 @@ def run_simulator(
             max_datetime=max_datetime_
         )
         simulator.push_restore()
+
+        max_datetime_ = get_next_checkpoint(
+            simulator.next_datetime,
+            checkpoint
+        )

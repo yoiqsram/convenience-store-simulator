@@ -29,6 +29,7 @@ class Order(
             ) -> None:
         self._order_skus = order_skus
         self.buyer: Person = None
+        self.store: Store = None
         self.payment_method: PaymentMethod = None
 
         self._status = OrderStatus.COLLECTING
@@ -61,11 +62,14 @@ class Order(
             ) -> None:
         self._status = OrderStatus.QUEUING
         self.queue_datetime = current_datetime
-        store.add_order_queue(self)
+        self.store = store
+        self.store.add_order_queue(self)
+
+    def cancel_order(self) -> None:
+        self.store.remove_order_queue(self)
 
     def begin_checkout(
             self,
-            store: Store,
             employee: Employee,
             current_datetime: datetime,
             buyer_gender: Gender = None,
@@ -84,7 +88,7 @@ class Order(
                 buyer_age_group = buyer_age_group.name
 
             self._order_record = OrderModel.create(
-                store=store.record.id,
+                store=self.store.record.id,
                 cashier_employee=employee.record.id,
                 buyer_gender=buyer_gender,
                 buyer_age_group=buyer_age_group,

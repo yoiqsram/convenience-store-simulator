@@ -279,6 +279,21 @@ class Customer(
             # self._next_step = current_step + 60
             # return current_step, self._next_step
 
+        # Cancel order if the queue takes longer than 30 minutes
+        elif self.current_order.status == OrderStatus.QUEUING \
+                and (
+                    self.current_datetime
+                    - self.current_order.queue_datetime
+                ).total_seconds() > 1800:
+            self.current_order.cancel_order()
+            self.current_order = None
+            self._next_step = cast(
+                self.calculate_next_order_datetime(current_date),
+                float
+            )
+            self.push_restore(tmp=True)
+            return current_step, self._next_step
+
         # Waiting for checkout process
         elif self.current_order.status == OrderStatus.PROCESSING \
                 and self.current_order.checkout_end_datetime is not None:

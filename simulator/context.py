@@ -140,7 +140,7 @@ class GlobalContext:
         get_environment_variable(
             'SIMULATOR_POPULATION_SPENDING_RATE',
             float,
-            0.6
+            0.4
         )
     POPULATION_FAMILY_MARRIED_PROB: float = \
         get_environment_variable(

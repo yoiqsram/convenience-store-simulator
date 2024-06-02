@@ -153,9 +153,7 @@ class Employee(
                 )
 
             self.status = EmployeeStatus.PROCESSING_ORDER
-            self.parent.remove_order_queue(self.current_order)
             self.current_order.begin_checkout(
-                store=self.parent,
                 employee=self,
                 buyer_gender=buyer_gender,
                 buyer_age_group=buyer_age_group,

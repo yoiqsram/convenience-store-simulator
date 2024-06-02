@@ -141,7 +141,7 @@ class DatetimeEnvironment(
             **kwargs
             ) -> Tuple[datetime, Union[datetime, None]]:
         real_start_datetime = datetime.now()
-        current_step, next_step = self.step(*args, **kwargs)
+        current_step, next_step = self.step(*args, sync=sync, **kwargs)
         next_datetime = cast(next_step, datetime)
 
         real_current_datetime = datetime.now()

@@ -106,7 +106,7 @@ class Simulator(
             for store in self.stores()
         ])
 
-    def step(self):
+    def step(self, *args, **kwargs):
         past_datetime = self.current_datetime
         current_step, next_step = super().step()
         current_datetime = cast(current_step, datetime)
@@ -145,7 +145,8 @@ class Simulator(
 
         # @ 15 mins - Log synchronization between simulation
         # and the real/projected datetime
-        if current_datetime.minute % 15 == 0 \
+        if kwargs.get('sync', False) \
+                and current_datetime.minute % 15 == 0 \
                 and current_datetime.minute != past_datetime.minute:
             real_current_datetime = datetime.now()
             speed_adjusted_real_current_datetime = real_current_datetime
@@ -186,17 +187,17 @@ class Simulator(
                 dt=current_datetime
             ))
             simulator_logger.debug(simulator_log_format(
-                'Total canceled orders:',
+                'Today unconverted orders:',
                 sum([
                     store.total_canceled_orders
                     for store in self.stores()
                 ]),
-                '. Total customer steps:',
+                '. Today customer steps:',
                 sum([
                     store.customer_steps
                     for store in self.stores()
                 ]),
-                '. Total employee steps:',
+                '. Today employee steps:',
                 sum([
                     store.employee_steps
                     for store in self.stores()

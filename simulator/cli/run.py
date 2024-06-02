@@ -43,11 +43,6 @@ def add_run_parser(subparsers) -> None:
         )
     )
     parser.add_argument(
-        '--skip-step',
-        action='store_true',
-        help='Skip agent step when idle to reduce computation.'
-    )
-    parser.add_argument(
         '--no-sync',
         action='store_true',
         help='Run iteratively without simulating (scaled) time interval.'

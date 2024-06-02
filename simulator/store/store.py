@@ -237,10 +237,7 @@ class Store(
                 return
 
     def remove_order_queue(self, order: Order) -> None:
-        try:
-            self._order_queue.remove(order)
-        except Exception:
-            pass
+        self._order_queue.remove(order)
 
     def step(self) -> Tuple[datetime, Union[datetime, None]]:
         previous_datetime = self.current_datetime

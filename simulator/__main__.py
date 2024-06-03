@@ -55,8 +55,9 @@ def _run(args) -> None:
 
         worker_name = 'simulator-' + str(uuid.uuid4()).split('-')[0]
         subprocess.Popen(
-            f'celery -A simulator.celery worker -l INFO -c {workers} '
-            f'-n {worker_name}@%h --pidfile {worker_name}.pid',
+            f'celery -A simulator.celery worker --logfile=INFO '
+            f'--concurrency={workers} --hostname={worker_name}@%h '
+            f'--pidfile {worker_name}.pid',
             shell=True
         )
 
@@ -115,6 +116,9 @@ def clean_temporary_files(restore_dir: Path) -> None:
     simulator_logger.info(
         'Cleaning up temporary files from the last run...'
     )
+
+    for file in restore_dir.glob('*.pid'):
+        file.unlink()
 
     for file in restore_dir.rglob('*.json.tmp'):
         file.unlink()

@@ -156,7 +156,7 @@ def run_simulator(
 
     max_datetime = cast(max_datetime, datetime)
     max_datetime_ = get_next_checkpoint(
-        simulator.next_datetime,
+        simulator.next_datetime + timedelta(days=1),
         checkpoint
     )
     if max_datetime is not None \

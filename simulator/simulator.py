@@ -8,8 +8,8 @@ from typing import Any, Dict, Iterable, Tuple
 
 from .core import RandomDatetimeEnvironment
 from .core.utils import cast
-from .context import GlobalContext  # , DAYS_IN_YEAR
-from .database import SubdistrictModel
+from .context import GlobalContext, DAYS_IN_YEAR
+from .database import SubdistrictModel, StoreModel
 from .logging import simulator_logger, store_logger, simulator_log_format
 from .population import Family, Place
 from .store import Product, Store
@@ -118,31 +118,6 @@ class Simulator(
             if store.initial_step <= current_step
         ])
 
-        # # @ 1 day - Daily update possibility of store growth
-        # if current_datetime.day != past_datetime.day:
-        #     for random in self._rng.random(n_stores):
-        #         if random > self.store_growth_rate / DAYS_IN_YEAR:
-        #             continue
-
-        #         try:
-        #             ...
-        #             self.add_agent(new_store)
-        #             simulator_logger.info(simulator_log_format(
-        #                 f"New store #{self.n_stores}",
-        #                 f"'{new_store.place_name}'",
-        #                 'has been built with market population size',
-        #                 f"{new_store.total_market_population()}.",
-        #                 dt=current_datetime
-        #             ))
-
-        #         # Possible error when a store
-        #         # has been exists in the same place
-        #         except Exception:
-        #             simulator_logger.error(
-        #                 'Failed to build new store.',
-        #                 exc_info=True
-        #             )
-
         # @ 1 hour - Log today orders hourly
         if current_datetime.hour != past_datetime.hour:
             speed_adjusted_real_current_datetime, behind_seconds = \
@@ -151,20 +126,6 @@ class Simulator(
                 speed_adjusted_real_current_datetime
                 .isoformat(sep=' ', timespec='seconds')
             )
-
-            # @ 15 mins - Log synchronization between simulation
-            # and the real/projected datetime
-            if kwargs.get('sync', False) \
-                    and current_datetime.minute % 15 == 0 \
-                    and current_datetime.minute != past_datetime.minute:
-                if behind_seconds >= self._interval:
-                    simulator_logger.debug(simulator_log_format(
-                        'Simulation is behind the',
-                        'real datetime' if self.speed == 1.0
-                        else f"projected datetime ({dt_str})",
-                        f'by {behind_seconds:.1f}s.',
-                        dt=current_datetime
-                    ))
 
             if behind_seconds <= self._interval \
                     or current_datetime.day != past_datetime.day:
@@ -209,6 +170,105 @@ class Simulator(
                         f'| Today cumulative orders: {store.total_orders}.',
                         dt=current_datetime
                     ))
+
+            if current_datetime.day != past_datetime.day:
+                # Log synchronization between simulation
+                # and the real/projected datetime
+                if kwargs.get('sync', False):
+                    if behind_seconds >= self._interval:
+                        simulator_logger.debug(simulator_log_format(
+                            'Simulation is behind the',
+                            'real datetime' if self.speed == 1.0
+                            else f"projected datetime ({dt_str})",
+                            f'by {behind_seconds:.1f}s.',
+                            dt=current_datetime
+                        ))
+
+                current_date = current_datetime.date()
+                total_subdistricts = SubdistrictModel.select().count()
+                growth_rate = self.store_growth_rate / DAYS_IN_YEAR
+                for random in self._rng.random(n_stores):
+                    if random > growth_rate:
+                        continue
+
+                    try:
+                        _time_store = datetime.now()
+
+                        subdistrict: SubdistrictModel = (
+                            SubdistrictModel.select()
+                            .limit(1)
+                            .offset(int(self._rng.choice(total_subdistricts)))
+                            .execute()
+                            .iterate()
+                        )
+
+                        store_dir = (
+                            self.restore_file.parent
+                            / 'Store'
+                            / subdistrict.code
+                        )
+                        store_dir.mkdir(parents=True, exist_ok=True)
+
+                        # Create a place
+                        market_populations, fertility_rates, \
+                            life_expectancies, marry_ages = \
+                            self._calculate_market_params(1)
+
+                        place = Place(
+                            code=subdistrict.code,
+                            name=subdistrict.name,
+                            initial_date=current_date,
+                            initial_population=market_populations[0],
+                            fertility_rate=fertility_rates[0],
+                            life_expectancy=life_expectancies[0],
+                            marry_age=marry_ages[0],
+                            rng=np.random.RandomState(self.random_seed())
+                        )
+                        place.push_restore(store_dir / 'place.json', tmp=True)
+
+                    # Possible error when a store
+                    except Exception:
+                        simulator_logger.error(
+                            'Failed to build new store.',
+                            exc_info=True
+                        )
+                        shutil.rmtree(place.restore_file.parent)
+                        place = None
+
+                    if place is not None:
+                        # Add store on the place
+                        store = Store(
+                            place,
+                            current_datetime,
+                            self.interval,
+                            rng=place._rng
+                        )
+                        store.created_datetime = current_datetime
+                        self.add_agent(store)
+
+                        # Populate place with families and customer data
+                        for family in Family.bulk_generate(
+                                int(place.initial_population / 3.0),
+                                current_date,
+                                rng=place._rng
+                                ):
+                            family_dir = (
+                                store_dir
+                                / 'Customer'
+                                / family.id
+                            )
+                            family_dir.mkdir(parents=True, exist_ok=True)
+                            family.push_restore(family_dir / 'family.json')
+
+                        store.push_restore(store_dir / 'store.json')
+                        time_elapsed = (
+                            datetime.now() - _time_store
+                        ).total_seconds()
+                        simulator_logger.info(
+                            f"New store ({self.n_stores}) '{place.name}' "
+                            f"is created on '{store.initial_date}'. "
+                            f'{time_elapsed:.1f}s.'
+                        )
 
         return current_step, next_step
 
@@ -451,6 +511,10 @@ class Simulator(
         obj._next_step = next_step
         obj._real_initial_datetime = attrs['real_initial_datetime']
         obj.load_rng_state(attrs['rng_state'])
+
+        StoreModel.delete() \
+            .where(StoreModel.created_datetime > obj.current_datetime) \
+            .execute()
 
         store_ids = kwargs.get('store_ids')
         for store_restore_file in base_dir.rglob('Store/*/store.json'):

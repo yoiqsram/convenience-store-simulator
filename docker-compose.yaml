@@ -71,7 +71,7 @@ services:
           fi
         fi
 
-        python -m simulator run --speed=$${SIMULATOR_SPEED:-1.0} --interval=${SIMULATOR_INTERVAL:-1} --interval-min=${SIMULATOR_INTERVAL_MIN:-1} --interval-max=${SIMULATOR_INTERVAL_MAX:-5} --checkpoint=${SIMULATOR_CHECKPOINT:-weekly} --workers=$${SIMULATOR_WORKERS:-0}
+        python -m simulator run --speed=$${SIMULATOR_SPEED:-1.0} --interval=${SIMULATOR_INTERVAL:-1} --interval-min=${SIMULATOR_INTERVAL_MIN:-1} --interval-max=${SIMULATOR_INTERVAL_MAX:-5} --checkpoint=${SIMULATOR_CHECKPOINT:-monthly} --workers=$${SIMULATOR_WORKERS:-0}
 
 volumes:
   postgres-db:

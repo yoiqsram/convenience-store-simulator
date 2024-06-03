@@ -14,8 +14,8 @@ RUN pip install psycopg2
 # STAGE 2: Runtime image
 FROM build as runtime
 
-# Use --build-arg UPDATE_RUNTIME_ONLY=1 to test changed source without having to recache the whole build
-ARG UPDATE_RUNTIME_ONLY=0
+# Use different value for --build-arg CACHEBUST to recache current stage
+ARG CACHEBUST=0
 COPY . .
 
 # Verify required python packages

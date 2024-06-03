@@ -193,6 +193,10 @@ class Customer(
 
             # Unfortunately some kids could be orphaned
             # and only be able to order when they reach teenage
+            if family.n_members == 0:
+                self._next_step = None
+                return current_step, self._next_step
+
             oldest_age = family.oldest_age(current_date)
             if oldest_age < AgeGroup.KID.value:
                 self._next_step = cast(

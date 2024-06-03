@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import List
 
 from ..core.utils import cast
-from ..context import GlobalContext
 from ..logging import simulator_logger
 from ..simulator import Simulator
 
@@ -57,27 +56,11 @@ def add_run_parser(subparsers) -> None:
     parser.add_argument(
         '--workers',
         type=int,
-        default=1,
-        help='Number of workers. Default to 1.'
-    )
-    parser.add_argument(
-        '--store-ids',
-        help=argparse.SUPPRESS
-    )
-
-
-def clean_temporary_files(restore_dir: Path) -> None:
-    _time = datetime.now()
-    simulator_logger.info(
-        'Cleaning up temporary files from the last run...'
-    )
-
-    for file in restore_dir.rglob('*.json.tmp'):
-        file.unlink()
-
-    simulator_logger.info(
-        f"Temporary files have been cleaned. "
-        f'{(datetime.now() - _time).total_seconds():.1f}s'
+        default=0,
+        help=(
+            'Number of workers to be used in celery. '
+            'Default to 0 (use sequential).'
+        )
     )
 
 
@@ -136,19 +119,17 @@ def get_next_checkpoint(
 
 
 def run_simulator(
-        max_datetime: datetime,
+        restore_file: str,
+        max_datetime: str,
         speed: float,
         interval: float,
         interval_min: float,
         interval_max: float,
         sync: bool,
         checkpoint: str,
-        workers: int,
-        store_ids: List[str]
+        store_ids: List[str] = None
         ) -> None:
-    restore_file = GlobalContext.RESTORE_DIR / 'simulator.json'
-
-    clean_temporary_files(restore_file.parent)
+    restore_file = Path(restore_file)
 
     _time = datetime.now()
     simulator_logger.info('Loading simulator...')
@@ -175,7 +156,7 @@ def run_simulator(
 
     max_datetime = cast(max_datetime, datetime)
     max_datetime_ = get_next_checkpoint(
-        simulator.current_datetime,
+        simulator.next_datetime,
         checkpoint
     )
     if max_datetime is not None \
@@ -185,7 +166,7 @@ def run_simulator(
     while simulator.next_datetime is not None \
             and (
                 max_datetime is None
-                or simulator.next_datetime <= max_datetime
+                or simulator.next_datetime < max_datetime
             ):
         simulator.run(
             sync=sync,
@@ -197,3 +178,5 @@ def run_simulator(
             simulator.next_datetime,
             checkpoint
         )
+
+    return str(simulator.restore_file)

@@ -18,8 +18,14 @@ class PaymentMethodModel(BaseModel):
 
 class OrderModel(BaseModel):
     id = BigAutoField(primary_key=True)
-    store = ForeignKeyField(StoreModel)
-    cashier_employee = ForeignKeyField(EmployeeModel)
+    store = ForeignKeyField(
+        StoreModel,
+        on_delete='CASCADE'
+    )
+    cashier_employee = ForeignKeyField(
+        EmployeeModel,
+        on_delete='CASCADE'
+    )
     payment_method = ForeignKeyField(PaymentMethodModel, null=True)
     buyer_gender = CharField(null=True)
     buyer_age_group = CharField(null=True)

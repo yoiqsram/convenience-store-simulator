@@ -2,6 +2,7 @@ from .base import (
     BaseModel, AutoField, CharField,
     DateField, DateTimeField, ForeignKeyField
 )
+from .store import StoreModel
 
 
 class EmployeeModel(BaseModel):
@@ -10,6 +11,11 @@ class EmployeeModel(BaseModel):
     name = CharField()
     gender = CharField()
     birth_date = DateField()
+    store = ForeignKeyField(
+        StoreModel,
+        backref='employees',
+        on_delete='CASCADE'
+    )
 
     modified_datetime = DateTimeField()
 
@@ -19,7 +25,10 @@ class EmployeeModel(BaseModel):
 
 class EmployeeShiftScheduleModel(BaseModel):
     id = AutoField(primary_key=True)
-    employee = ForeignKeyField(EmployeeModel)
+    employee = ForeignKeyField(
+        EmployeeModel,
+        on_delete='CASCADE'
+    )
     shift_start_datetime = DateTimeField()
     shift_end_datetime = DateTimeField()
 
@@ -29,7 +38,10 @@ class EmployeeShiftScheduleModel(BaseModel):
 
 class EmployeeAttendanceModel(BaseModel):
     id = AutoField(primary_key=True)
-    employee = ForeignKeyField(EmployeeModel)
+    employee = ForeignKeyField(
+        EmployeeModel,
+        on_delete='CASCADE'
+    )
     status = CharField()
 
     class Meta:

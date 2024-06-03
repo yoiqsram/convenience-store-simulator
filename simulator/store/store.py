@@ -14,8 +14,8 @@ from ..core import MultiAgent, DatetimeStepMixin
 from ..core.utils import cast
 from ..database import (
     Database, ModelMixin, StoreModel,
-    SubdistrictModel, EmployeeShiftScheduleModel,
-    MODELS
+    EmployeeModel, EmployeeShiftScheduleModel,
+    SubdistrictModel, OrderModel
 )
 from ..enums import EmployeeShift, EmployeeStatus
 from ..logging import store_logger, simulator_log_format
@@ -436,11 +436,19 @@ class Store(
         obj._current_step = current_step
         obj._next_step = next_step
 
-        for model in MODELS:
-            model.delete()\
-                .where(model.created_datetime > obj.current_datetime)\
-                .execute()
+        # Delete temporary employee records
+        EmployeeModel.delete() \
+            .where(EmployeeModel.store_id == obj.record_id) \
+            .where(EmployeeModel.created_datetime > obj.current_datetime) \
+            .execute()
 
+        # Delete temporary orders
+        OrderModel.delete() \
+            .where(OrderModel.store_id == obj.record_id) \
+            .where(OrderModel.created_datetime > obj.current_datetime) \
+            .execute()
+
+        # Restore employees
         employee_dir = base_dir / 'Employee'
         for employee_restore_file in (
                 employee_dir.glob('*/employee.json')

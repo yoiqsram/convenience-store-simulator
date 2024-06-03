@@ -1,27 +1,6 @@
-x-convenience-store-simulator:
-  &common
-  image: simulator/convenience-store:0.1
-  build:
-    dockerfile: Dockerfile
-  environment:
-    &common-env
-    POSTGRES_DB_HOST: postgres
-    POSTGRES_DB_PORT: 5432
-    POSTGRES_DB_NAME: store
-    POSTGRES_DB_USERNAME: store
-    POSTGRES_DB_PASSWORD: store
-  env_file:
-    - simulator.env
-  volumes:
-    - simulator-data:/app/data
-  depends_on:
-    &common-depends-on
-    postgres:
-      condition: service_healthy
-
 services:
   postgres:
-    image: postgres:alpine3.19
+    image: postgres:16.3-alpine3.20
     environment:
       POSTGRES_USER: store
       POSTGRES_PASSWORD: store
@@ -35,86 +14,64 @@ services:
       start_period: 5s
     restart: always
 
-  simulator:
-    <<: *common
-    command:
-      - run
-      - --speed=$${SIMULATOR_SPEED:-1.0}
-      - --interval=$${SIMULATOR_INTERVAL:-1}
-      - --skip-step
-      - --checkpoint=$${SIMULATOR_CHECKPOINT_INTERVAL:-2592000}
-    environment:
-      <<: *common-env
+  simulator-redis:
+    image: redis:7.2.5-alpine3.19
+    expose:
+      - 6379
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 30s
+      retries: 50
+      start_period: 30s
     restart: always
-    depends_on:
-      <<: *common-depends-on
-      init:
-        condition: service_completed_successfully
 
-  init:
-    <<: *common
+  simulator:
+    image: simulator/convenience-store:0.2
+    build:
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_DB_HOST: postgres
+      POSTGRES_DB_PORT: 5432
+      POSTGRES_DB_NAME: store
+      POSTGRES_DB_USERNAME: store
+      POSTGRES_DB_PASSWORD: store
+      BROKER_URL: redis://:@simulator-redis:6379/0
+    env_file:
+      - simulator.env
+    volumes:
+      - simulator-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      simulator-redis:
+        condition: service_healthy
     entrypoint: /bin/sh
     command:
       - -c
       - |
-        export SEED=$${_SEED:-}
-        export BACKUP=$${_INITIAL_BACKUP:-false}
-        export CHECKPOINT_INTERVAL=$${_INITIAL_SIMULATOR_CHECKPOINT_INTERVAL:-0}
-        export SIMULATOR_INITIAL_DATE="$${_INITIAL_DATE}"
-        export SIMULATOR_MAX_DATE="$${_INITIAL_MAX_DATE}"
-        export SIMULATOR_INTERVAL="$${_INITIAL_SIMULATOR_INTERVAL:-1.0}"
-        export SIMULATOR_INTERVAL_MIN="$${_INITIAL_SIMULATOR_INTERVAL_MIN:-1.0}"
-        export SIMULATOR_INTERVAL_MAX="$${_INITIAL_SIMULATOR_INTERVAL_MAX:-5.0}"
-        export SIMULATOR_INITIAL_STORES="$${_INITIAL_STORES:-100}"
-        export SIMULATOR_INITIAL_STORES_RANGE_DAYS="$${_INITIAL_STORES_RANGE_DAYS:-180}"
-        export SIMULATOR_STORE_GROWTH_RATE="$${_INITIAL_STORE_GROWTH_RATE:-0.5}"
-        export SIMULATOR_STORE_MARKET_POPULATION="$${_INITIAL_STORE_MARKET_POPULATION:-15_000}"
-        export SIMULATOR_STORE_INITIAL_EMPLOYEES="$${_INITIAL_STORE_EMPLOYEES:-4}"
+        export SEED=$${INITIAL_SEED:-}
 
-        if [ -e "/app/data/checkpoint.pkl" ]; then
-          echo "Simulator has exists."
-          exit 0
-        fi
+        if [ -e "/app/data/restore/simulator.json" ]; then
+          echo "Simulator has already exists."
 
-        SEED=$${SEED}
-        echo "Initializing simulator..."
-        if [ -z "$${SEED}" ]; then
-          python -m simulator init
         else
-          python -m simulator init --seed $${SEED}
+          echo "Initializing simulator..."
+          if [ -z "$${SEED}" ]; then
+            python -m simulator init
+          else
+            python -m simulator init --seed=$${SEED}
+          fi
+
+          if [ $? -eq 0 ]; then
+            echo "Succefully initialize simulator."
+          else
+            echo "An error was occured during while initializing the simulator.."
+            exit 1
+          fi
         fi
 
-        if [ $? -eq 0 ]; then
-          echo "Succefully initialize simulator."
-        else
-          echo "An error was occured during while initializing the simulator.."
-          exit 1
-        fi
-
-        if [ "$${BACKUP}" -eq true ]; then
-          echo "Complete backup the simulator checkpoint."
-          cp /app/data/checkpoint.pkl /app/data/checkpoint.pkl.backup
-        fi
-
-        if [ -z "$${_INITIAL_DATE}" ]; then
-          echo "'_INITIAL_DATE' is not set. Initial simulation will be not performed."
-          echo "The next run will have simulation to run start from '$(date +%Y-%m-%d)'."
-          exit 0
-        fi
-
-        if [ -z "$${_INITIAL_MAX_DATE}" ]; then
-          export SIMULATOR_MAX_DATE="$(date +'%Y-%m-%d')"
-          echo "'_INITIAL_MAX_DATE' is not set. It will be set as today."
-        fi
-        echo "Running initial simulation from '$${SIMULATOR_INITIAL_DATE}' until '$${SIMULATOR_MAX_DATE}' with simulation speed 1:$${SIMULATOR_SPEED}."
-        python -m simulator run --max-datetime=$${SIMULATOR_MAX_DATE} --skip-step --no-sync --checkpoint=$${CHECKPOINT_INTERVAL}
-
-        if [ $? -eq 0 ]; then
-          echo "Initial simulation has been completed. The next run will have simulation to run start from '$${SIMULATOR_MAX_DATE}'."
-        else
-          echo "An error was occured while running the simulation."
-          exit 1
-        fi
+        python -m simulator run --speed=$${SIMULATOR_SPEED:-1.0} --interval=${SIMULATOR_INTERVAL:-1} --interval-min=${SIMULATOR_INTERVAL_MIN:-1} --interval-max=${SIMULATOR_INTERVAL_MAX:-5} --checkpoint=${SIMULATOR_CHECKPOINT:-weekly} --workers=$${SIMULATOR_WORKERS:-0}
 
 volumes:
   postgres-db:

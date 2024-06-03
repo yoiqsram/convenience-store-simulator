@@ -65,6 +65,7 @@ class Manager(Agent, DatetimeStepMixin):
                     self.parent.interval,
                     rng=self._rng
                 )
+                employee._record.store = self.parent.record_id
                 employee.created_datetime = current_datetime
 
                 employee_dir = (

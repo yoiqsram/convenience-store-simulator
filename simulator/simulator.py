@@ -12,7 +12,7 @@ from .context import GlobalContext  # , DAYS_IN_YEAR
 from .database import SubdistrictModel
 from .logging import simulator_logger, store_logger, simulator_log_format
 from .population import Family, Place
-from .store import Store
+from .store import Product, Store
 
 
 class Simulator(
@@ -28,7 +28,7 @@ class Simulator(
             initial_stores: int = None,
             initial_store_population: int = None,
             store_growth_rate: float = None,
-            restore_dir: Path = None,
+            restore_file: Path = None,
             seed: int = None
             ) -> None:
         if store_growth_rate is None:
@@ -64,15 +64,15 @@ class Simulator(
         )
 
         # Prepare restore file
-        if restore_dir is None:
-            restore_dir = GlobalContext.RESTORE_DIR
-
-        self.restore_file = restore_dir / 'simulator.json'
+        if restore_file is None:
+            restore_file = GlobalContext.RESTORE_DIR / 'simulator.json'
+        self.restore_file = restore_file
 
         # Generate stores
         if initial_stores is None:
             initial_stores = GlobalContext.INITIAL_STORES
 
+        self.products: Dict[str, Product] = Product.load()
         if initial_stores > 0:
             if initial_store_population is None:
                 initial_store_population = \
@@ -143,80 +143,72 @@ class Simulator(
         #                 exc_info=True
         #             )
 
-        # @ 15 mins - Log synchronization between simulation
-        # and the real/projected datetime
-        if kwargs.get('sync', False) \
-                and current_datetime.minute % 15 == 0 \
-                and current_datetime.minute != past_datetime.minute:
-            real_current_datetime = datetime.now()
-            speed_adjusted_real_current_datetime = real_current_datetime
-            if self.speed != 1.0:
-                speed_adjusted_real_current_datetime = (
-                    self._real_initial_datetime
-                    + self.speed * (
-                        real_current_datetime - self._real_initial_datetime
-                    )
-                )
-            behind_seconds = (
-                speed_adjusted_real_current_datetime
-                - current_datetime
-            ).total_seconds()
-
+        # @ 1 hour - Log today orders hourly
+        if current_datetime.hour != past_datetime.hour:
+            speed_adjusted_real_current_datetime, behind_seconds = \
+                self._calculate_behind_seconds(current_datetime)
             dt_str = (
                 speed_adjusted_real_current_datetime
                 .isoformat(sep=' ', timespec='seconds')
             )
-            if behind_seconds >= self._interval:
+
+            # @ 15 mins - Log synchronization between simulation
+            # and the real/projected datetime
+            if kwargs.get('sync', False) \
+                    and current_datetime.minute % 15 == 0 \
+                    and current_datetime.minute != past_datetime.minute:
+                if behind_seconds >= self._interval:
+                    simulator_logger.debug(simulator_log_format(
+                        'Simulation is behind the',
+                        'real datetime' if self.speed == 1.0
+                        else f"projected datetime ({dt_str})",
+                        f'by {behind_seconds:.1f}s.',
+                        dt=current_datetime
+                    ))
+
+            if behind_seconds <= self._interval \
+                    or current_datetime.day != past_datetime.day:
                 simulator_logger.info(simulator_log_format(
-                    'Simulation is behind the',
-                    'real datetime' if self.speed == 1.0
-                    else f"projected datetime ({dt_str})",
-                    f'by {behind_seconds:.1f}s.',
+                    f'Total active stores: {n_active_stores}/{n_stores}.',
+                    'Today cumulative orders:',
+                    sum([
+                        store.total_orders
+                        for store in self.stores()
+                    ]),
                     dt=current_datetime
                 ))
 
-        # @ 1 hour - Log today orders hourly
-        if current_datetime.hour != past_datetime.hour:
-            simulator_logger.info(simulator_log_format(
-                f'Total active stores: {n_active_stores}/{n_stores}.',
-                'Today cumulative orders:',
-                sum([
-                    store.total_orders
-                    for store in self.stores()
-                ]),
-                dt=current_datetime
-            ))
-            simulator_logger.debug(simulator_log_format(
-                'Today unconverted orders:',
-                sum([
-                    store.total_canceled_orders
-                    for store in self.stores()
-                ]),
-                '. Today customer steps:',
-                sum([
-                    store.customer_steps
-                    for store in self.stores()
-                ]),
-                '. Today employee steps:',
-                sum([
-                    store.employee_steps
-                    for store in self.stores()
-                ]),
-                dt=current_datetime
-            ))
-
-            for i, store in enumerate(self.stores(), 1):
-                if store.initial_step > current_step:
-                    continue
-
-                store_logger.debug(simulator_log_format(
-                    f"Store #{str(i).rjust(len(str(n_stores)), '0')}",
-                    store.place_name,
-                    '-', 'OPEN' if store.is_open() else 'CLOSE',
-                    f'({store.n_cashiers}/{store.n_employees})',
-                    f'| Today cumulative orders: {store.total_orders}.',
+                simulator_logger.debug(simulator_log_format(
+                    'Today unconverted orders:',
+                    sum([
+                        store.total_canceled_orders
+                        for store in self.stores()
+                    ]),
+                    '. Today customer steps:',
+                    sum([
+                        store.customer_steps
+                        for store in self.stores()
+                    ]),
+                    '. Today employee steps:',
+                    sum([
+                        store.employee_steps
+                        for store in self.stores()
+                    ]),
                     dt=current_datetime
                 ))
+
+                for i, store in enumerate(self.stores(), 1):
+                    if store.initial_step > current_step:
+                        continue
+
+                    store_logger.debug(simulator_log_format(
+                        f"Store #{str(i).rjust(len(str(n_stores)), '0')}",
+                        store.place_name,
+                        '-', 'OPEN' if store.is_open() else 'CLOSE',
+                        f'({store.n_cashiers}/{store.n_employees})',
+                        f'| Today cumulative orders: {store.total_orders}.',
+                        dt=current_datetime
+                    ))
 
         return current_step, next_step
 
@@ -381,6 +373,26 @@ class Simulator(
         )
 
         return populations, fertility_rates, life_expectancies, marry_ages
+
+    def _calculate_behind_seconds(
+            self,
+            current_datetime: datetime
+            ) -> Tuple[datetime, float]:
+        real_current_datetime = datetime.now()
+        speed_adjusted_real_current_datetime = real_current_datetime
+        if self.speed != 1.0:
+            speed_adjusted_real_current_datetime = (
+                self._real_initial_datetime
+                + self.speed * (
+                    real_current_datetime - self._real_initial_datetime
+                )
+            )
+
+        behind_seconds = (
+            speed_adjusted_real_current_datetime
+            - current_datetime
+        ).total_seconds()
+        return speed_adjusted_real_current_datetime, behind_seconds
 
     @property
     def restore_attrs(self) -> Dict[str, Any]:

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 class CustomerData(RestorableMixin):
     def __init__(
             self,
+            products: Dict[str, Product],
             initial_date: date,
             seed: int = None,
             rng: np.random.RandomState = None,
@@ -34,7 +35,7 @@ class CustomerData(RestorableMixin):
         if product_need_days_left is None:
             product_need_days_left = {
                 product: int(rng.randint(0, product.interval_days_need))
-                for product in Product.all()
+                for product in products.values()
             }
         self.product_need_days_left = product_need_days_left
         self.last_product_need_updated_date = initial_date
@@ -110,7 +111,13 @@ class CustomerData(RestorableMixin):
         return payment_method_prob, payment_method_time
 
     @classmethod
-    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Customer:
+    def _restore(
+            cls,
+            attrs: Dict[str, Any],
+            file: Path,
+            products: Dict[str, Product],
+            **kwargs
+            ) -> Customer:
         payment_method_prob = {}
         payment_method_time = {}
         for payment_method_name, (prob, time) in (
@@ -121,9 +128,10 @@ class CustomerData(RestorableMixin):
             payment_method_time[payment_method] = time
 
         obj = cls(
+            products,
             attrs['last_product_need_updated_date'],
             product_need_days_left={
-                Product.get(product_name): days_left
+                products[product_name]: days_left
                 for product_name, days_left in (
                     attrs['product_need_days_left'].items()
                 )
@@ -179,7 +187,8 @@ class Customer(
     def data(self) -> CustomerData:
         return CustomerData.restore(
             self.restore_file.parent / 'customer_data.json',
-            tmp=True
+            tmp=True,
+            products=self.parent.products
         )
 
     def step(self) -> Tuple[datetime, Union[datetime, None]]:
@@ -438,7 +447,7 @@ class Customer(
                     ):
                 if product_name not in order_product_names \
                         and random <= association_strength:
-                    associated_product = Product.get(product_name)
+                    associated_product = self.parent.products[product_name]
                     order_products.append(associated_product)
 
         return order_products
@@ -493,11 +502,13 @@ class Customer(
             self,
             file: Path = None,
             tmp: bool = False,
+            products: Dict[str, Product] = None,
             **kwargs
             ) -> None:
         data_restore_file = file.parent / 'customer_data.json'
         if not data_restore_file.exists():
             data = CustomerData(
+                products,
                 self.current_date,
                 rng=self._rng
             )

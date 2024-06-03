@@ -24,6 +24,7 @@ from .customer import Customer
 from .order import Order
 from .employee import Employee
 from .manager import Manager
+from .sku import Product
 
 
 class Store(
@@ -112,6 +113,10 @@ class Store(
     def total_market_population(self) -> int:
         return self.place.total_population()
 
+    @property
+    def products(self) -> Dict[str, Product]:
+        return self.parent.products
+
     def employees(self) -> Iterable[Employee]:
         for employee in self._employees:
             yield employee
@@ -184,6 +189,7 @@ class Store(
             customer = Customer.restore(
                 customer_dir / str(file),
                 tmp=True,
+                products=self.products,
                 rng=self._rng
             )
             yield customer
@@ -302,10 +308,11 @@ class Store(
             else:
                 customer = Customer.restore(
                     customer_restore_file,
-                    tmp=True
+                    tmp=True,
+                    products=self.products
                 )
 
-            customer.push_restore()
+            customer.push_restore(products=self.products)
 
         self.place.push_restore()
 

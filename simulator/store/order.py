@@ -77,18 +77,14 @@ class Order(
             ) -> None:
         database: Database = OrderModel._meta.database
         with database.atomic():
-            for sku, _ in self._order_skus:
-                sku: SKU
-                sku.update(current_datetime)
-
             if buyer_gender is not None:
                 buyer_gender = buyer_gender.name
 
             if buyer_age_group is not None:
                 buyer_age_group = buyer_age_group.name
 
-            self._order_record = OrderModel.create(
-                store=self.store.record.id,
+            self._order_record = OrderModel(
+                store_id=self.store.record.id,
                 cashier_employee=employee.record.id,
                 buyer_gender=buyer_gender,
                 buyer_age_group=buyer_age_group,
@@ -116,15 +112,15 @@ class Order(
 
         database: Database = OrderModel._meta.database
         with database.atomic():
+            self._order_record.payment_method = self.payment_method.value
+            self._order_record.complete_datetime = self.complete_datetime
+            self._order_record.save()
+
             for sku, quantity in self._order_skus:
                 OrderSKUModel.create(
-                    order=self._order_record,
+                    order=self._order_record.id,
                     sku=sku.record.id,
                     price=sku.price,
                     quantity=quantity,
                     created_datetime=current_datetime
                 )
-
-            self._order_record.payment_method = self.payment_method.value
-            self._order_record.complete_datetime = self.complete_datetime
-            self._order_record.save()

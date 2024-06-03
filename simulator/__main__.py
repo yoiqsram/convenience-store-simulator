@@ -66,52 +66,48 @@ def _run(args) -> None:
         else:
             n_stores_per_worker = int(n_stores_per_worker)
 
-        try:
-            run_tasks = []
-            for i in range(workers):
-                store_ids_ = store_ids[
-                    i * n_stores_per_worker:
-                    (i + 1) * n_stores_per_worker
-                ]
+        run_tasks = []
+        for i in range(workers):
+            store_ids_ = store_ids[
+                i * n_stores_per_worker:
+                (i + 1) * n_stores_per_worker
+            ]
 
-                task_restore_file = (
-                    restore_file.parent
-                    / (restore_file.name[:-5] + f'-{i}.json')
-                )
-                shutil.copy(restore_file, task_restore_file)
-                run_task = run_simulator_async.s(
-                    restore_file=str(task_restore_file),
-                    max_datetime=args.max_datetime,
-                    speed=args.speed,
-                    interval=args.interval,
-                    interval_min=args.interval_min,
-                    interval_max=args.interval_max,
-                    sync=not args.no_sync,
-                    checkpoint=args.checkpoint,
-                    store_ids=store_ids_
-                )
-                run_tasks.append(run_task)
-
-            job = group(run_tasks).apply_async(expires=30)
-            results = job.get()
-            for i, task_restore_file in enumerate(results):
-                if i == 0:
-                    shutil.copy(task_restore_file, restore_file)
-                os.remove(task_restore_file)
-
-            simulator_logger.info(
-                'Complete run the simulator. '
-                f'{(datetime.now() - _time).total_seconds():.1f}s'
+            task_restore_file = (
+                restore_file.parent
+                / (restore_file.name[:-5] + f'-{i}.json')
             )
+            shutil.copy(restore_file, task_restore_file)
+            run_task = run_simulator_async.s(
+                restore_file=str(task_restore_file),
+                max_datetime=args.max_datetime,
+                speed=args.speed,
+                interval=args.interval,
+                interval_min=args.interval_min,
+                interval_max=args.interval_max,
+                sync=not args.no_sync,
+                checkpoint=args.checkpoint,
+                store_ids=store_ids_
+            )
+            run_tasks.append(run_task)
 
-        except Exception:
-            pass
+        job = group(run_tasks).apply_async(expires=30)
+        results = job.get()
+        for i, task_restore_file in enumerate(results):
+            if i == 0:
+                shutil.copy(task_restore_file, restore_file)
+            os.remove(task_restore_file)
+
+        simulator_logger.info(
+            'Complete run the simulator. '
+            f'{(datetime.now() - _time).total_seconds():.1f}s'
+        )
 
         subprocess.run(
             f"kill -9 $(cat {worker_name}.pid)",
             shell=True
         )
-        os.remove(f'{worker_name}.pid')
+        # os.remove(f'{worker_name}.pid')
 
 
 def clean_temporary_files(restore_dir: Path) -> None:

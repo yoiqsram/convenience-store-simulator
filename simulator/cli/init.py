@@ -97,7 +97,7 @@ def init_simulator(
             )
 
     simulator = Simulator(
-        restore_dir=restore_dir,
+        restore_file=restore_file,
         seed=seed
     )
     return simulator

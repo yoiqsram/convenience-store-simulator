@@ -17,8 +17,6 @@ class Product(
         model=ProductModel,
         repr_attrs=('name', 'category', 'modifier')
         ):
-    __instances__: Dict[str, Product] = {}
-
     def __init__(
             self,
             name: str,
@@ -48,8 +46,6 @@ class Product(
             skus = []
         self.skus = skus
 
-        self.__class__.__instances__[name] = self
-
     def adjusted_modifier(
             self,
             person: Person,
@@ -77,33 +73,16 @@ class Product(
         return self.modifier * multiplier
 
     @classmethod
-    def all(cls) -> List[Product]:
-        if len(cls.__instances__) == 0:
-            cls.load()
-
-        return list(cls.__instances__.values())
-
-    @classmethod
-    def get(cls, name: str) -> Product:
-        if len(cls.__instances__) == 0:
-            cls.load()
-
-        return cls.__instances__[name]
-
-    @classmethod
-    def clear(cls) -> None:
-        cls.__instances__ = {}
-
-    @classmethod
     def load(cls, config_path: Path = None) -> None:
+        products: Dict[str, Product] = {}
         item_config = GlobalContext.get_config_item(config_path)
         for category in item_config['categories']:
-            for product_name in category['products']:
+            for product_data in category['products']:
                 product = cls(
-                    name=product_name['name'],
+                    name=product_data['name'],
                     category=category['name'],
-                    modifier=product_name.get('modifier', 0.01),
-                    interval_days_need=product_name.get(
+                    modifier=product_data.get('modifier', 0.01),
+                    interval_days_need=product_data.get(
                         'interval_days_need',
                         30
                     ),
@@ -117,8 +96,9 @@ class Product(
                         cost=sku['cost'],
                         pax=sku['pax']
                     )
-                    for sku in product_name['skus']
+                    for sku in product_data['skus']
                 ]
+                products[product.name] = product
 
         for association in item_config['associations']:
             association_products = [
@@ -127,7 +107,7 @@ class Product(
                     'value': value
                 }
                 for name, value in association['products'].items()
-                if name in cls.__instances__
+                if name in products.keys()
             ]
             if len(association_products) < 2:
                 continue
@@ -139,7 +119,7 @@ class Product(
 
                     product_name = association_products[i]['name']
                     associated_product_name = association_products[j]['name']
-                    product = cls.__instances__[product_name]
+                    product = products[product_name]
                     product.associations[associated_product_name] = \
                         association_products[i]['value']
 
@@ -147,12 +127,14 @@ class Product(
             for product_name, value in (
                     demographic_modifier['products'].items()
                     ):
-                cls.__instances__[product_name].demographic_modifiers.append({
+                products[product_name].demographic_modifiers.append({
                     'gender': demographic_modifier.get('gender'),
                     'age_min': demographic_modifier.get('age_min'),
                     'age_max': demographic_modifier.get('age_max'),
                     'value': value
                 })
+
+        return products
 
 
 class SKU(
@@ -160,8 +142,6 @@ class SKU(
         model=SKUModel,
         repr_attrs=('name', 'brand', 'price', 'cost', 'pax')
         ):
-    __instances__: Dict[str, SKU] = {}
-
     def __init__(
             self,
             name: str,
@@ -187,18 +167,5 @@ class SKU(
             pax=pax
         )
 
-        self.__instances__[name] = self
-
     def update(self, current_datetime: datetime) -> None:
         self.created_datetime = current_datetime
-
-    @classmethod
-    def get(cls, name: str) -> Product:
-        if len(Product.__instances__) == 0:
-            Product.load()
-
-        return cls.__instances__[name]
-
-    @classmethod
-    def clear(cls) -> None:
-        cls.__instances__ = {}

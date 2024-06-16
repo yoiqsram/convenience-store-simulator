@@ -7,8 +7,11 @@ class Gender(Enum):
 
 
 class AgeGroup(Enum):
+    INFANT = 5
+    '''below 5 years'''
+
     KID = 12
-    '''below 12 years'''
+    '''5-12 years'''
 
     TEENAGE = 18
     '''12-17 years'''
@@ -23,12 +26,6 @@ class AgeGroup(Enum):
     '''65 years and older'''
 
 
-class FamilyStatus(Enum):
-    SINGLE = 1
-    PARENT = 2
-    CHILD = 3
-
-
 class PaymentMethod(Enum):
     CASH = 1
     DIGITAL_CASH = 2
@@ -37,6 +34,7 @@ class PaymentMethod(Enum):
 
 
 class OrderStatus(Enum):
+    PLANNING = 0
     COLLECTING = 1
     QUEUING = 2
     PROCESSING = 3

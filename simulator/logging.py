@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from logging import NOTSET, INFO, DEBUG, WARNING, ERROR
 
+from core.utils import cast
 from .context import GlobalContext
 
 __all__ = [
@@ -17,7 +18,7 @@ __all__ = [
 
 def simulator_log_format(*args, dt: datetime, sep=' '):
     return (
-        f"[SIM-TIME {dt.isoformat(sep=' ', timespec='seconds')}] "
+        f"[SIM-TIME {cast(dt, datetime).isoformat(sep=' ', timespec='seconds')}] "
         f"{sep.join([ str(arg) for arg in args ])}"
     )
 

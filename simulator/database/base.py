@@ -7,7 +7,7 @@ from peewee import (
     FloatField, ForeignKeyField, IntegerField,
     Model, PostgresqlDatabase, SQL, SqliteDatabase
 )
-from typing import Any, Dict, Type, Union
+from typing import Any, Type
 
 from ..context import GlobalContext
 
@@ -65,7 +65,7 @@ class ModelMixin:
 
     def __init_model__(
             self,
-            unique_identifiers: Dict[str, Any],
+            unique_identifiers: dict[str, Any],
             **kwargs
             ) -> None:
         self._unique_identifiers = unique_identifiers
@@ -79,7 +79,8 @@ class ModelMixin:
             self._record = query.get()
 
             for name, value in kwargs.items():
-                setattr(self._record, name, value)
+                if value is not None:
+                    setattr(self._record, name, value)
 
         except Exception:
             self._record = self.__model__(
@@ -96,7 +97,7 @@ class ModelMixin:
         return self._record
 
     @property
-    def created_datetime(self) -> Union[datetime, None]:
+    def created_datetime(self) -> datetime | None:
         return self._record.created_datetime
 
     @created_datetime.setter

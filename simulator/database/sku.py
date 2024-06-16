@@ -1,6 +1,6 @@
 from .base import (
     AutoField, CharField, DateTimeField,
-    FloatField, ForeignKeyField,
+    FloatField, ForeignKeyField, IntegerField,
     BaseModel
 )
 
@@ -21,7 +21,11 @@ class CategoryModel(BaseModel):
 
 class ProductModel(BaseModel):
     id = AutoField(primary_key=True)
-    category = ForeignKeyField(CategoryModel)
+    category = ForeignKeyField(
+        CategoryModel,
+        backref='products',
+        on_delete='CASCADE'
+    )
     name = CharField(unique=True)
 
     class Meta:
@@ -30,9 +34,14 @@ class ProductModel(BaseModel):
 
 class SKUModel(BaseModel):
     id = AutoField(primary_key=True)
-    product = ForeignKeyField(ProductModel)
+    product = ForeignKeyField(
+        ProductModel,
+        backref='skus',
+        on_delete='CASCADE'
+    )
     brand = CharField()
     name = CharField(unique=True)
+    pax = IntegerField()
     price = FloatField()
     cost = FloatField()
 

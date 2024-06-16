@@ -2,6 +2,7 @@ import argparse
 import os
 import shutil
 from datetime import datetime
+from time import time
 from typing import Union
 
 from ..context import GlobalContext
@@ -11,6 +12,7 @@ from ..database import (
     Database, SqliteDatabase,
     StoreModel, create_database
 )
+from ..database.config import config_database, create_config_database
 
 
 def add_init_parser(subparsers) -> None:
@@ -27,7 +29,7 @@ def add_init_parser(subparsers) -> None:
     parser.add_argument(
         '--rewrite', '-R',
         action='store_true',
-        help='Rewrite session if exists.'
+        help='Rewrite saved data if exists.'
     )
 
 
@@ -35,18 +37,18 @@ def init_simulator(
         seed: Union[int, None],
         rewrite: bool
         ) -> Simulator:
-    restore_dir = GlobalContext.RESTORE_DIR
-    restore_file = restore_dir / 'simulator.json'
-    if not rewrite and restore_file.exists():
+    save_dir = GlobalContext.SIMULATOR_SAVE_DIR
+    save_file = save_dir / 'simulator.json'
+    if not rewrite and save_file.exists():
         raise FileExistsError()
 
     database: Database = StoreModel._meta.database
-    if rewrite and restore_dir.exists():
-        _time_rewrite = datetime.now()
+    if rewrite and save_dir.exists():
+        _time = time()
         simulator_logger.info('Removing old simulator data...')
 
-        shutil.rmtree(restore_dir)
-        restore_dir.mkdir()
+        shutil.rmtree(save_dir)
+        save_dir.mkdir()
 
         if isinstance(database, SqliteDatabase):
             if os.path.exists(database.database):
@@ -65,16 +67,19 @@ def init_simulator(
 
         simulator_logger.info(
             f'Old simulator data has been removed. '
-            f'{(datetime.now() - _time_rewrite).total_seconds():.1f}s'
+            f'{time() - _time:.1f}s'
         )
 
     # Create simulator database if not available
+    if not os.path.exists(config_database.database):
+        create_config_database()
+
     if StoreModel.table_exists():
         if not rewrite and StoreModel.select().count() > 1:
             raise FileExistsError('Database is already exists.')
 
     else:
-        _time_db = datetime.now()
+        _time = time()
         initial_datetime = datetime(
             GlobalContext.INITIAL_DATE.year,
             GlobalContext.INITIAL_DATE.month,
@@ -87,7 +92,7 @@ def init_simulator(
         create_database(initial_datetime)
         simulator_logger.info(
             f'Simulator database is ready. '
-            f'{(datetime.now() - _time_db).total_seconds():.1f}s'
+            f'{time() - time:.1f}s'
         )
 
         if isinstance(database, SqliteDatabase):
@@ -96,8 +101,6 @@ def init_simulator(
                 str(database.database) + '.backup'
             )
 
-    simulator = Simulator(
-        restore_file=restore_file,
-        seed=seed
-    )
+    simulator = Simulator(seed=seed)
+    simulator.save(save_dir)
     return simulator

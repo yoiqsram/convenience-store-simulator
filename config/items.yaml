@@ -1,97 +1,186 @@
 associations:
-  - products:
-      FRIED CHICKEN: 0.4
-      SOFT DRINKS: 0.2
-  - products:
-      BURGERS: 0.5
-      SOFT DRINKS: 0.15
-  - products:
-      BREAD: 0.5
-      MILKS: 0.2
-  - products:
-      COOKIES & CRACKERS: 0.4
-      MILKS: 0.05
-  - products:
-      BREAKFAST BARS: 0.25
-      MILKS: 0.05
-  - products:
-      CEREAL: 0.6
-      MILKS: 0.05
-  - products:
-      BREAD: 0.3
-      COFFEE: 0.1
-  - products:
-      CIGARETTES: 0.6
-      COFFEE: 0.1
-  - products:
-      YOGURTS & MILKSHAKES: 0.3
-      BOTTLED WATER: 0.05
-  - products:
-      ENERGY DRINKS & SPORT DRINKS: 0.25
-      FRESH FRUITS: 0.05
-  - products:
-      ICE CREAMS: 0.25
-      BOTTLED WATER: 0.05
-  - products:
-      SALT & SUGAR: 0.5
-      SEASONINGS: 0.5
-  - products:
-      SEASONINGS: 0.4
-      KETCHUP, SAUCES, & MAYONNAISE: 0.4
-  - products:
-      EGGS: 0.2
-      COOKING OIL: 0.2
-  - products:
-      FLOUR: 0.4
-      BUTTER & MARGARINE: 0.1
-  - products:
-      BABY FOOD: 0.5
-      DIAPERS: 0.5
-  - products:
-      SHAVING RAZORS: 0.25
-      PERFUME & BODY SPRAY: 0.1
-  - products:
-      KID TOYS: 0.5
-      ICE CREAMS: 0.1
-  - products:
-      PASTA: 0.6
-      KETCHUP, SAUCES, & MAYONNAISE: 0.1
-demographic_modifiers:
-  - age_min: 0
-    age_max: 5
-    products:
-      KID TOYS: 20.0
-      BABY FOOD: 60.0
-      DIAPERS: 40.0
-  - age_min: 5
-    age_max: 16
-    products:
-      ICE CREAMS: 2.0
-      MILKS: 2.0
-      KID TOYS: 40.0
-  - gender: FEMALE
-    age_min: 16
-    age_max: 55
-    products:
-      COFFEE: 0.5
-      BREAKFAST BARS: 5.0
-      DISH SOAP: 2.0
-      DETERGENTS & SOFTENERS: 2.5
-  - gender: MALE
-    age_min: 16
-    age_max: 55
-    products:
-      CIGARETTES: 10.0
-      COFFEE: 1.5
-      ENERGY DRINKS & SPORT DRINKS: 1.5
-      SHAVING RAZORS: 10.0
-      GALOON WATER: 5.0
-      BATTERIES: 5.0
-  - age_min: 55
-    age_max: 70
-    products:
-      MEDICINES: 5.0
-      VITAMIN & SUPLEMENTS: 5.0
+  BREAD:
+    MILKS: 0.5
+    COFFEE: 0.1
+  COOKIES & CRACKERS:
+    MILKS: 0.4
+  COFFEE:
+    BREAD: 0.1
+    CIGARETTES: 0.1
+  MILKS:
+    BREAD: 0.2
+    COOKIES & CRACKERS: 0.05
+    BREAKFAST BARS: 0.05
+    CEREALS: 0.05
+  SOFT DRINKS:
+    FRIED CHICKEN: 0.2
+    BURGERS: 0.15
+  CEREALS:
+    MILKS: 0.6
+  BREAKFAST BARS:
+    MILKS: 0.25
+  FRIED CHICKEN:
+    SOFT DRINKS: 0.4
+  BURGERS:
+    SOFT DRINKS: 0.5
+  CIGARETTES:
+    COFFEE: 0.6
+  YOGURTS & MILKSHAKES:
+    BOTTLED WATER: 0.3
+  BOTTLED WATER:
+    ICE CREAMS: 0.05
+    YOGURTS & MILKSHAKES: 0.05
+  ENERGY DRINKS & SPORT DRINKS:
+    FRESH FRUITS: 0.25
+  FRESH FRUITS:
+    ENERGY DRINKS & SPORT DRINKS: 0.05
+  ICE CREAMS:
+    BOTTLED WATER: 0.25
+    KID TOYS: 0.1
+  SALT & SUGAR:
+    SEASONINGS: 0.5
+  SEASONINGS:
+    SALT & SUGAR: 0.5
+    KETCHUP, SAUCES, & MAYONNAISE: 0.4
+  KETCHUP, SAUCES, & MAYONNAISE:
+    SEASONINGS: 0.4
+    PASTA: 0.1
+  EGGS:
+    COOKING OIL: 0.2
+  COOKING OIL:
+    EGGS: 0.2
+  FLOUR:
+    BUTTER & MARGARINE: 0.1
+  BUTTER & MARGARINE:
+    FLOUR: 0.4
+  BABY FOOD:
+    DIAPERS: 0.5
+  DIAPERS:
+    BABY FOOD: 0.5
+  SHAVING RAZORS:
+    PERFUME & BODY SPRAY: 0.25
+  PERFUME & BODY SPRAY:
+    SHAVING RAZORS: 0.1
+  KID TOYS:
+    ICE CREAMS: 0.5
+  PASTA:
+    KETCHUP, SAUCES, & MAYONNAISE: 0.6
+family_modifiers:
+  - product: KID TOYS
+    age_groups:
+      - KID
+    genders:
+      - MALE
+      - FEMALE
+    modifier: 20
+  - product: BABY FOOD
+    age_groups:
+      - INFANT
+    genders:
+      - MALE
+      - FEMALE
+    modifier: 50
+  - product: DIAPERS
+    age_groups:
+      - INFANT
+    genders:
+      - MALE
+      - FEMALE
+    modifier: 50
+  - product: MILKS
+    age_groups:
+      - KID
+    genders:
+      - MALE
+      - FEMALE
+    modifier: 5
+  - product: ICE CREAMS
+    age_groups:
+      - KID
+    genders:
+      - MALE
+      - FEMALE
+    modifier: 2
+  - product: MEDICINES
+    age_groups:
+      - OLDER_ADULT
+    genders:
+      - MALE
+      - FEMALE
+    modifier: 5
+  - product: VITAMIN & SUPLEMENTS
+    age_groups:
+      - OLDER_ADULT
+    genders:
+      - MALE
+      - FEMALE
+    modifier: 5
+buyer_modifiers:
+  - product: COFFEE
+    age_groups:
+      - YOUNG_ADULT
+    genders:
+      - MALE
+    modifier: 1.5
+  - product: COFFEE
+    age_groups:
+      - YOUNG_ADULT
+    genders:
+      - FEMALE
+    modifier: 0.5
+  - product: BREAKFAST BARS
+    age_groups:
+      - YOUNG_ADULT
+    genders:
+      - FEMALE
+    modifier: 5
+  - product: DISH SOAP
+    age_groups:
+      - YOUNG_ADULT
+    genders:
+      - FEMALE
+    modifier: 2
+  - product: DETERGENTS & SOFTENERS
+    age_groups:
+      - YOUNG_ADULT
+      - MIDDLE_ADULT
+    genders:
+      - FEMALE
+    modifier: 2.5
+  - product: CIGARETTES
+    age_groups:
+      - YOUNG_ADULT
+      - MIDDLE_ADULT
+    genders:
+      - MALE
+    modifier: 10
+  - product: ENERGY DRINKS & SPORT DRINKS
+    age_groups:
+      - YOUNG_ADULT
+    genders:
+      - MALE
+    modifier: 1.5
+  - product: SHAVING RAZORS
+    age_groups:
+      - YOUNG_ADULT
+      - MIDDLE_ADULT
+    genders:
+      - MALE
+    modifier: 10
+  - product: GALOON WATER
+    age_groups:
+      - YOUNG_ADULT
+      - MIDDLE_ADULT
+    genders:
+      - MALE
+    modifier: 5
+  - product: BATTERIES
+    age_groups:
+      - YOUNG_ADULT
+      - MIDDLE_ADULT
+    genders:
+      - MALE
+    modifier: 5
 categories:
   - name: BEVERAGES
     products:
@@ -148,7 +237,7 @@ categories:
           price: 1.37
           cost: 1.19
           pax: 4
-    - name: BOTTLED WATERS
+    - name: BOTTLED WATER
       modifier: 0.35
       interval_days_need: 3
       skus:

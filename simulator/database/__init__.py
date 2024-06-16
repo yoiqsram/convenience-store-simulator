@@ -1,6 +1,5 @@
 from datetime import datetime
 from peewee import Database, SqliteDatabase, IntegrityError
-from typing import List
 
 from ..context import GlobalContext
 from ..enums import PaymentMethod
@@ -54,7 +53,7 @@ __all__ = [
     'create_database'
 ]
 
-MODELS: List[BaseModel] = [
+MODELS: list[BaseModel] = [
     EmployeeModel,
     EmployeeShiftScheduleModel,
     EmployeeAttendanceModel,
@@ -146,6 +145,7 @@ def _populate_items(created_datetime: datetime) -> None:
                         brand=sku['brand'],
                         price=price,
                         cost=sku['cost'] * GlobalContext.CURRENCY_MULTIPLIER,
+                        pax=sku['pax'],
                         product=product_record.id,
                         created_datetime=created_datetime,
                         modified_datetime=created_datetime

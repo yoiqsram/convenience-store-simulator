@@ -1,12 +1,10 @@
 from .order import Order
-from .sku import Product, SKU
-from .store import Customer, Store, Employee
+from .store import Customer, Employee, Place, Store
 
 __all__ = [
     'Order',
-    'Product',
-    'SKU',
     'Customer',
-    'Store',
-    'Employee'
+    'Employee',
+    'Place',
+    'Store'
 ]

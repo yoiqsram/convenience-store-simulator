@@ -1,45 +1,44 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Iterable, List, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from ..core import ReprMixin, IdentityMixin
-from ..core.restore import RestorableMixin, RestoreTypes
-from ..database import Database, OrderModel, OrderSKUModel
-from ..enums import AgeGroup, Gender, PaymentMethod, OrderStatus
-from .sku import SKU
+from core import ReprMixin, IdentityMixin
+from core.utils import cast
+from ..database import OrderModel, OrderSKUModel, SKUModel
+from ..enums import Gender, PaymentMethod, OrderStatus
 
 if TYPE_CHECKING:
-    from ..population import Person
     from .store import Store
     from .employee import Employee
 
 
 class Order(
-        RestorableMixin, ReprMixin, IdentityMixin,
+        ReprMixin, IdentityMixin,
         repr_attrs=('n_order_skus', 'status')
         ):
-    __additional_types__ = RestoreTypes(PaymentMethod, OrderStatus)
-
     def __init__(
             self,
-            order_skus: List[Tuple[SKU, int]],
-            begin_datetime: datetime,
+            store: Store,
+            buyer_gender: Gender,
+            buyer_age: float,
+            order_skus: list[tuple[SKUModel, int]],
+            payment_method: PaymentMethod,
             _id: str = None
             ) -> None:
-        self._order_skus = order_skus
-        self.buyer: Person = None
-        self.store: Store = None
-        self.payment_method: PaymentMethod = None
+        self.store = store
+        self.buyer_gender = buyer_gender
+        self.buyer_age = buyer_age
+        self.payment_method = payment_method
+        self.order_skus = order_skus
 
-        self._status = OrderStatus.COLLECTING
-        self.begin_datetime = begin_datetime
-        self.queue_datetime: datetime = None
-        self.checkout_start_datetime: datetime = None
-        self.checkout_end_datetime: datetime = None
-        self.complete_datetime: datetime = None
-
-        self._order_record: OrderModel = None
+        self.begin_timestamp: float = None
+        self.queue_timestamp: float = None
+        self.checkout_start_timestamp: float = None
+        self.checkout_end_timestamp: float = None
+        self.paid_timestamp: float = None
+        self.complete_timestamp: float = None
+        self._status = OrderStatus.PLANNING
 
         super().__init_id__(_id)
 
@@ -49,78 +48,71 @@ class Order(
 
     @property
     def n_order_skus(self) -> int:
-        return len(self._order_skus)
-
-    def order_skus(self) -> Iterable[Tuple[SKU, int]]:
-        for sku, quantity in self._order_skus:
-            yield sku, quantity
-
-    def queue(
-            self,
-            store: Store,
-            current_datetime: datetime
-            ) -> None:
-        self._status = OrderStatus.QUEUING
-        self.queue_datetime = current_datetime
-        self.store = store
-        self.store.add_order_queue(self)
+        return len(self.order_skus)
 
     def cancel_order(self) -> None:
+        self.store.total_canceled_orders += 1
         self.store.remove_order_queue(self)
+
+    def collect(self, current_timestamp: float) -> None:
+        self._status = OrderStatus.COLLECTING
+        self.begin_timestamp = current_timestamp
+
+    def queue(self, current_timestamp: float) -> None:
+        self._status = OrderStatus.QUEUING
+        self.queue_timestamp = current_timestamp
+        self.store.add_order_queue(self)
 
     def begin_checkout(
             self,
-            employee: Employee,
-            current_datetime: datetime,
-            buyer_gender: Gender = None,
-            buyer_age_group: AgeGroup = None
+            current_timestamp: float,
+            checkout_time: float
             ) -> None:
-        database: Database = OrderModel._meta.database
-        with database.atomic():
-            if buyer_gender is not None:
-                buyer_gender = buyer_gender.name
+        self._status = OrderStatus.PROCESSING
+        self.checkout_start_timestamp = current_timestamp
+        self.checkout_end_timestamp = current_timestamp + checkout_time
 
-            if buyer_age_group is not None:
-                buyer_age_group = buyer_age_group.name
+    def complete_checkout(self, current_step: float = None) -> None:
+        self._status = OrderStatus.WAITING_PAYMENT
+        if current_step is not None:
+            self.checkout_end_timestamp = current_step
 
-            self._order_record = OrderModel(
+    def begin_payment(
+            self,
+            current_timestamp: float,
+            payment_time: float
+            ) -> None:
+        self._status = OrderStatus.DOING_PAYMENT
+        self.paid_timestamp = current_timestamp + payment_time
+
+    def complete_payment(self, current_timestamp: float = None) -> None:
+        self._status = OrderStatus.PAID
+        if current_timestamp is not None:
+            self.paid_timestamp = current_timestamp
+
+    def submit(self, employee: Employee, current_timestamp: float) -> None:
+        self.store.total_orders += 1
+        self._status = OrderStatus.DONE
+        self.complete_timestamp = current_timestamp
+
+        with OrderModel._meta.database.atomic():
+            buyer_age_group = \
+                employee.estimate_customer_age_group(self.buyer_age)
+
+            order = OrderModel.create(
                 store_id=self.store.record.id,
                 cashier_employee=employee.record.id,
-                buyer_gender=buyer_gender,
+                buyer_gender=self.buyer_gender.name,
                 buyer_age_group=buyer_age_group,
-                created_datetime=current_datetime
+                created_datetime=cast(self.checkout_start_timestamp, datetime),
+                complete_datetime=cast(self.complete_timestamp, datetime)
             )
 
-        self._status = OrderStatus.PROCESSING
-        self.checkout_start_datetime = current_datetime
-
-    def complete_checkout(self, current_datetime: datetime) -> None:
-        self._status = OrderStatus.WAITING_PAYMENT
-        self.checkout_end_datetime = current_datetime
-
-    def begin_payment(self, payment_method: PaymentMethod) -> None:
-        self.payment_method = payment_method
-        self._status = OrderStatus.DOING_PAYMENT
-
-    def complete_payment(self, current_datetime: datetime) -> None:
-        self._status = OrderStatus.PAID
-        self.complete_datetime = current_datetime
-
-    def submit(self, current_datetime: datetime) -> None:
-        self._status = OrderStatus.DONE
-        self.complete_datetime = current_datetime
-
-        database: Database = OrderModel._meta.database
-        with database.atomic():
-            self._order_record.payment_method = self.payment_method.value
-            self._order_record.complete_datetime = self.complete_datetime
-            self._order_record.save()
-
-            for sku, quantity in self._order_skus:
+            for sku, quantity in self.order_skus:
                 OrderSKUModel.create(
-                    order=self._order_record.id,
-                    sku=sku.record.id,
+                    order=order.id,
+                    sku=sku.id,
                     price=sku.price,
                     quantity=quantity,
-                    created_datetime=current_datetime
+                    created_datetime=current_timestamp
                 )

@@ -1,6 +1,8 @@
+import numpy as np
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, List
+from pathlib import Path
+from typing import Any
 
 
 def cast(_value: Any, _type: type) -> Any:
@@ -22,6 +24,11 @@ def cast(_value: Any, _type: type) -> Any:
             return _type.fromtimestamp(_value)
         elif isinstance(_value, str):
             return _type.fromisoformat(_value)
+        else:
+            try:
+                return _type.fromtimestamp(float(_value))
+            except Exception:
+                pass
 
     elif _type is date \
             and isinstance(_value, datetime):
@@ -54,7 +61,7 @@ def get_dict_value(
         name: str,
         type: type = None,
         default: Any = None,
-        none_values: List[str] = None,
+        none_values: list[str] = None,
         none_error: bool = False
         ) -> Any:
     if default is not None \
@@ -81,3 +88,37 @@ def get_dict_value(
         return env_var
 
     return cast(env_var, type)
+
+
+def load_memmap_to_array(
+        path: Path,
+        shape: tuple[int, ...] = None,
+        dtype: type = np.float64
+        ) -> np.ndarray:
+    memmap = np.memmap(
+        path,
+        mode='r',
+        dtype=dtype
+    )
+    if shape is not None:
+        memmap = memmap.reshape(shape)
+    shape = memmap.shape
+
+    array = np.zeros(shape, dtype=dtype)
+    array[:] = memmap[:]
+    return array
+
+
+def dump_memmap_to_array(
+        arr: np.ndarray,
+        path: Path,
+        dtype: type = np.float64
+        ) -> np.ndarray:
+    memmap = np.memmap(
+        path,
+        mode='w+',
+        shape=arr.shape,
+        dtype=dtype
+    )
+    memmap[:] = arr[:]
+    memmap.flush()

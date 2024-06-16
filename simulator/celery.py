@@ -1,8 +1,10 @@
 import os
 from celery import Celery, group
-from typing import List
+from pathlib import Path
+from psutil import Process
 
 from simulator.cli.run import run_simulator
+from simulator.logging import simulator_logger
 
 __all__ = [
     'app',
@@ -21,24 +23,28 @@ app = Celery(
 
 @app.task(name='simulator.run')
 def run_simulator_async(
-        restore_file: str,
+        load_dir: str,
         max_datetime: str,
         speed: float,
         interval: float,
-        interval_min: float,
-        interval_max: float,
         sync: bool,
         checkpoint: str,
-        store_ids: List[str]
-        ) -> None:
-    return run_simulator(
-        restore_file=restore_file,
-        max_datetime=max_datetime,
-        speed=speed,
-        interval=interval,
-        interval_min=interval_min,
-        interval_max=interval_max,
-        sync=sync,
-        checkpoint=checkpoint,
-        store_ids=store_ids
-    )
+        store_ids: list[str] = None
+        ) -> tuple[Path, int]:
+    try:
+        run_simulator(
+            load_dir=load_dir,
+            max_datetime=max_datetime,
+            speed=speed,
+            interval=interval,
+            sync=sync,
+            checkpoint=checkpoint,
+            store_ids=store_ids
+        )
+    except Exception:
+        simulator_logger.error(
+            'Unexpected error happened.',
+            exc_info=True
+        )
+
+    return load_dir, Process().memory_info().rss

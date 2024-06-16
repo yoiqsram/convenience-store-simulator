@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import numpy as np
-from datetime import date, datetime, timedelta
-from pathlib import Path
-from typing import Any, Dict, Tuple, Union, TYPE_CHECKING
+from datetime import date, datetime
+from typing import TYPE_CHECKING
 
-from ..core import Agent, DatetimeStepMixin
-from ..core.restore import RestoreTypes
-from ..core.utils import cast
+from core import Agent, DateTimeStepMixin
+from ..context import DAYS_IN_YEAR, SECONDS_IN_DAY
 from ..database import EmployeeModel, EmployeeAttendanceModel, ModelMixin
 from ..enums import (
-    AgeGroup, Gender, FamilyStatus, OrderStatus,
+    AgeGroup, Gender, OrderStatus,
     EmployeeAttendanceStatus, EmployeeShift, EmployeeStatus
 )
 from ..logging import store_logger, simulator_log_format
-from ..population import Person
 from .order import Order
 
 if TYPE_CHECKING:
@@ -23,92 +20,85 @@ if TYPE_CHECKING:
 
 class Employee(
         Agent,
-        DatetimeStepMixin, ModelMixin,
+        DateTimeStepMixin, ModelMixin,
         model=EmployeeModel,
-        repr_attrs=('name', 'status', 'shift')
+        repr_attrs=('status', 'shift')
         ):
-    __additional_types__ = RestoreTypes(EmployeeStatus, EmployeeShift)
-
     def __init__(
             self,
-            person: Person,
-            name: str,
-            initial_datetime: datetime,
-            interval: float,
-            age_recognition_rate: float = None,
-            counting_skill_rate: float = None,
-            content_rate: float = None,
-            discipline_rate: float = None,
+            name: str = None,
+            gender: Gender = None,
+            age: float = None,
             seed: int = None,
-            rng: np.random.RandomState = None
+            rng: np.random.RandomState = None,
+            record_id: int = None
             ) -> None:
-        super().__init__(
-            cast(initial_datetime, float),
-            cast(interval, float),
-            seed=seed,
-            rng=rng
-        )
-
+        super().__init__(seed=seed, rng=rng)
         self.parent: Store
-        self.person = person
-        self.name = name
-        self.age_recognition_rate = float(age_recognition_rate)
-        self.counting_skill_rate = float(counting_skill_rate)
-        self.content_rate = float(content_rate)
-        self.discipline_rate = float(discipline_rate)
+
         self.status = EmployeeStatus.OFF
-
         self.shift: EmployeeShift = EmployeeShift.NONE
-        self.schedule_shift_start_datetime: datetime = None
-        self.schedule_shift_end_datetime: datetime = None
-        self.today_shift_start_datetime: datetime = None
-        self.today_shift_end_datetime: datetime = None
+        self.schedule_shift_start_timestamp = None
+        self.schedule_shift_end_timestamp = None
+        self.today_shift_start_timestamp = None
+        self.today_shift_end_timestamp = None
 
-        self.current_order: Union[Order, None] = None
+        self.current_order: Order | None = None
 
+        attrs = {}
+        if record_id is None:
+            attrs['name'] = name
+            attrs['gender'] = gender.name
+            attrs['birth_date'] = date.fromtimestamp(int(self.initial_step - age))
         super().__init_model__(
-            unique_identifiers={'person_id': self.person.id},
-            name=self.name,
-            gender=person.gender.name,
-            birth_date=person.birth_date
+            unique_identifiers={'id': record_id},
+            **attrs
         )
 
-    def step(self) -> Tuple[datetime, Union[datetime, None]]:
-        self.parent.employee_steps += 1
-        current_step, next_step = super().step()
-        current_datetime = cast(current_step, datetime)
+    @property
+    def age_recognition_rate(self) -> float:
+        return self.parent._employee_params[self._index - 1, 0]
+
+    @property
+    def counting_skill_rate(self) -> float:
+        return self.parent._employee_params[self._index - 1, 1]
+
+    @property
+    def content_rate(self) -> float:
+        return self.parent._employee_params[self._index - 1, 2]
+
+    @property
+    def discipline_rate(self) -> float:
+        return self.parent._employee_params[self._index - 1, 3]
+
+    def step(self, *args, **kwargs) -> tuple[np.uint32, np.uint32, bool]:
+        self.parent.total_employee_steps += 1
+        current_step, next_step, done = super().step(*args, **kwargs)
 
         # Schedule next day shift on the midnight
-        if self.schedule_shift_start_datetime is None:
-            self.schedule_shift_attendance(
-                self.parent.employee_shift_schedules[self.record_id],
-                current_datetime.date()
-            )
-            self._next_step = cast(
-                self.schedule_shift_start_datetime,
-                float
-            )
-            return current_step, self._next_step
+        if self.schedule_shift_start_timestamp is None \
+                or (
+                    self.schedule_shift_start_timestamp // SECONDS_IN_DAY
+                    < current_step // SECONDS_IN_DAY
+                ):
+            self.schedule_shift_attendance(current_step)
+            self.next_step = self.schedule_shift_start_timestamp
+            return current_step, self.next_step, done
 
         # Begin shift
         elif self.status == EmployeeStatus.OFF \
-                and self.today_shift_start_datetime is None \
-                and self.schedule_shift_start_datetime <= current_datetime:
-            self.begin_shift(current_datetime)
-            return current_step, next_step
+                and self.today_shift_start_timestamp is None \
+                and self.schedule_shift_start_timestamp <= current_step:
+            self.begin_shift(current_step)
 
         # Assign to be cashier, if there's an idle cashier machine
-        elif self.status == EmployeeStatus.STARTING_SHIFT:
-            if self.parent.n_cashiers == self.parent.max_cashiers:
-                return current_step, next_step
+        if self.status == EmployeeStatus.STARTING_SHIFT:
+            if self.parent.n_cashiers >= self.parent.max_cashiers:
+                return current_step, next_step, done
 
-            self.parent.assign_cashier(self)
-            if self.parent.n_order_queue == 0:
-                self._next_step = self.schedule_shift_end_datetime.timestamp()
-                return current_step, self._next_step
-
-            self.parent.assign_order_queue(self)
-            return current_step, next_step
+            self.status = EmployeeStatus.IDLE
+            if self.parent.n_order_queue > 0:
+                self.parent.assign_order_queue(self)
 
         # Complete shift, if not busy
         # and there'll be enough cashiers in the store
@@ -116,158 +106,119 @@ class Employee(
                     EmployeeStatus.IDLE,
                     EmployeeStatus.STARTING_SHIFT
                 ) \
-                and self.today_shift_end_datetime is None \
-                and self.schedule_shift_end_datetime <= current_datetime \
+                and self.today_shift_end_timestamp is None \
+                and self.schedule_shift_end_timestamp <= current_step \
                 and (
                     self.parent.n_order_queue == 0 or
-                    (
-                        self.parent.total_active_shift_employees()
-                        - 1
-                    ) > 0
+                    (self.parent.total_active_shift_employees() - 1 > 0)
                 ):
-            self.complete_shift(current_datetime)
-
-            self._next_step = cast(
-                datetime(
-                    current_datetime.year,
-                    current_datetime.month,
-                    current_datetime.day
-                )
-                + timedelta(days=1, hours=6),  # Wake up time
-                float
+            self.complete_shift(current_step)
+            # Set next wake up at 6 a.m.
+            self.next_step = (
+                current_step - current_step % SECONDS_IN_DAY
+                + SECONDS_IN_DAY
+                + 6 * 3600
             )
-            return current_step, self._next_step
+            return current_step, self.next_step, done
 
+        # Set idle until the end of shift
         if self.current_order is None:
-            self._next_step = self.schedule_shift_end_datetime.timestamp()
-            return current_step, self._next_step
+            if self.status == EmployeeStatus.IDLE:
+                self.next_step = self.schedule_shift_end_timestamp
 
         # Process the assigned order
         elif self.current_order.status == OrderStatus.QUEUING:
-            buyer_gender, buyer_age_group = None, None
-            if self._rng.random() > 0.05:
-                buyer_gender = self.current_order.buyer.gender
-                buyer_age_group = self.estimate_age_group(
-                    self.current_order.buyer,
-                    current_datetime.date()
-                )
-
             self.status = EmployeeStatus.PROCESSING_ORDER
-            self.current_order.begin_checkout(
-                employee=self,
-                buyer_gender=buyer_gender,
-                buyer_age_group=buyer_age_group,
-                current_datetime=current_datetime
-            )
-
-            processing_time = \
+            checkout_time = \
                 self.calculate_checkout_time(self.current_order)
-            self.current_order.checkout_end_datetime = (
-                current_datetime
-                + timedelta(seconds=processing_time)
+            self.current_order.begin_checkout(
+                current_step,
+                checkout_time
             )
-            self._next_step = cast(
-                self.current_order.checkout_end_datetime,
-                float
-            )
-            return current_step, self._next_step
+            self.next_step = self.current_order.checkout_end_timestamp
 
         # Complete checkout
         elif self.current_order.status == OrderStatus.PROCESSING:
-            self.current_order.complete_checkout(current_datetime)
+            self.current_order.complete_checkout(current_step)
 
         # Waiting for payment
-        elif self.current_order.status == OrderStatus.DOING_PAYMENT \
-                and self.current_order.complete_datetime is not None:
-            self._next_step = \
-                self.current_order.complete_datetime.timestamp()
-            return current_step, self._next_step
+        elif self.current_order.status == OrderStatus.DOING_PAYMENT:
+            self.next_step = self.current_order.paid_timestamp
 
         # Complete order
         elif self.current_order.status == OrderStatus.PAID:
-            self.current_order.submit(current_datetime)
+            self.current_order.submit(self, current_step)
             self.current_order = None
-
             self.status = EmployeeStatus.IDLE
-            self.parent.total_orders += 1
 
             # Check for another order in queue
             if self.parent.n_order_queue > 0:
                 self.parent.assign_order_queue(self)
-                return current_step, self._next_step
+            else:
+                self.next_step = self.schedule_shift_end_timestamp
 
-        return current_step, next_step
+        return current_step, self.next_step, done
 
-    def schedule_shift_attendance(
-            self,
-            shift: EmployeeShift,
-            shift_date: date
-            ) -> None:
-        if shift == EmployeeShift.NONE:
+    def schedule_shift_attendance(self, current_step: float) -> None:
+        if self.shift == EmployeeShift.NONE:
             return
 
-        self.shift = shift
-        self.today_shift_start_datetime = None
-        self.today_shift_end_datetime = None
+        self.today_shift_start_timestamp = None
+        self.today_shift_end_timestamp = None
 
-        shift_start_datetime = (
-            datetime(shift_date.year, shift_date.month, shift_date.day)
-            + timedelta(hours=self.parent.start_shift_hours[self.shift])
+        shift_start_timestamp = int(
+            current_step - current_step % SECONDS_IN_DAY
+            + self.parent.start_shift_hours[self.shift.value - 1] * 3600
         )
-        self.schedule_shift_start_datetime = (
-            shift_start_datetime
-            + timedelta(seconds=int(self._rng.normal(
-                -self.discipline_rate * 60,
-                150
-            )))
+        self.schedule_shift_start_timestamp = int(
+            shift_start_timestamp
+            + self._rng.normal(-self.discipline_rate * 60, 150)
         )
-        self.schedule_shift_end_datetime = (
-            shift_start_datetime
-            + self.parent.long_shift_hours
+        self.schedule_shift_end_timestamp = int(
+            shift_start_timestamp
+            + self.parent.long_shift_hours * 3600
         )
 
         store_logger.debug(simulator_log_format(
             f'STORE {self.parent.place_name} -',
             f'[{self.record_id}]:',
             f"Schedule today's {self.shift.name} shift at",
-            self.schedule_shift_start_datetime,
+            datetime.fromtimestamp(self.schedule_shift_start_timestamp),
             dt=self.current_datetime
         ))
 
-    def begin_shift(self, current_datetime: datetime) -> None:
+    def begin_shift(self, current_step: float) -> None:
         EmployeeAttendanceModel.create(
             employee=self.record.id,
             status=EmployeeAttendanceStatus.BEGIN_SHIFT.name,
-            created_datetime=current_datetime
+            created_datetime=datetime.fromtimestamp(float(current_step))
         )
         self.status = EmployeeStatus.STARTING_SHIFT
-        self.today_shift_start_datetime = current_datetime
+        self.today_shift_start_timestamp = current_step
 
         store_logger.debug(simulator_log_format(
             f'STORE {self.parent.place_name} -',
             f'[{self.record_id}]:',
             f"Begin today's {self.shift.name} shift until",
-            self.schedule_shift_end_datetime,
+            datetime.fromtimestamp(self.schedule_shift_end_timestamp),
             dt=self.current_datetime
         ))
 
-    def complete_shift(self, current_datetime: datetime) -> None:
+    def complete_shift(self, current_step: float) -> None:
+        EmployeeAttendanceModel.create(
+            employee=self.record.id,
+            status=EmployeeAttendanceStatus.COMPLETE_SHIFT.name,
+            created_datetime=current_step
+        )
+        self.status = EmployeeStatus.OFF
+        self.today_shift_end_timestamp = current_step
+
         store_logger.debug(simulator_log_format(
             f'STORE {self.parent.place_name} -',
             f'[{self.record_id}]:',
             f"Completed today's {self.shift.name} shift.",
-            dt=current_datetime
+            dt=current_step
         ))
-
-        EmployeeAttendanceModel.create(
-            employee=self.record.id,
-            status=EmployeeAttendanceStatus.COMPLETE_SHIFT.name,
-            created_datetime=current_datetime
-        )
-        self.parent.dismiss_cashier(self)
-        self.today_shift_end_datetime = current_datetime
-        self.schedule_shift_start_datetime = None
-        self.schedule_shift_end_datetime = None
 
     def calculate_checkout_time(self, order: Order) -> float:
         checkout_time = (
@@ -290,7 +241,7 @@ class Employee(
                         0.25,
                         size=sum([
                             quantity - 1
-                            for _, quantity in order.order_skus()
+                            for _, quantity in order.order_skus
                         ])),
                     0.0,
                     5.0
@@ -299,196 +250,44 @@ class Employee(
         )
         return checkout_time
 
-    def estimate_age_group(
+    def estimate_customer_age_group(
             self,
-            person: Person,
-            current_date: date
-            ) -> AgeGroup:
+            buyer_age: float
+            ) -> tuple[Gender, AgeGroup]:
         age = (
-            person.age(current_date)
+            buyer_age / DAYS_IN_YEAR
             + self._rng.normal(0, (6.0 - self.age_recognition_rate) * 2)
         )
 
-        if age < AgeGroup.KID.value:
-            return AgeGroup.KID
+        for age_group in AgeGroup:
+            if age < age_group.value:
+                break
 
-        elif age < AgeGroup.TEENAGE.value:
-            return AgeGroup.TEENAGE
-
-        elif age < AgeGroup.YOUNG_ADULT.value:
-            return AgeGroup.YOUNG_ADULT
-
-        elif age < AgeGroup.MIDDLE_ADULT.value:
-            return AgeGroup.MIDDLE_ADULT
-
-        return AgeGroup.OLDER_ADULT
-
-    @property
-    def restore_attrs(self) -> Dict[str, Any]:
-        attrs = super().restore_attrs
-        attrs['name'] = self.name
-        attrs['skill_params'] = [
-            self.age_recognition_rate,
-            self.counting_skill_rate,
-            self.content_rate,
-            self.discipline_rate
-        ]
-        attrs['status'] = self.status
-        attrs['shift'] = self.shift
-        attrs['shift_datetimes'] = [
-            self.schedule_shift_start_datetime,
-            self.schedule_shift_end_datetime,
-            self.today_shift_start_datetime,
-            self.today_shift_end_datetime
-        ]
-        return attrs
-
-    @classmethod
-    def _restore(cls, attrs: Dict[str, Any], file: Path, **kwargs) -> Employee:
-        initial_step, interval, max_step, \
-            current_step, next_step = attrs['base_params']
-        age_recognition_rate, counting_skill_rate, \
-            content_rate, discipline_rate = \
-            attrs['skill_params']
-
-        for person_restore_file in file.parent.rglob('person.json'):
-            person_restore_file = str(person_restore_file)
-            person = Person.restore(file.parent / person_restore_file)
-
-        obj = cls(
-            person,
-            attrs['name'],
-            initial_step,
-            interval,
-            age_recognition_rate,
-            counting_skill_rate,
-            content_rate,
-            discipline_rate,
-        )
-        obj._max_step = max_step
-        obj._current_step = current_step
-        obj._next_step = next_step
-
-        obj.status = attrs['status']
-        obj.shift = attrs['shift']
-
-        (
-            obj.schedule_shift_start_datetime,
-            obj.schedule_shift_end_datetime,
-            obj.today_shift_start_datetime,
-            obj.today_shift_end_datetime
-        ) = attrs['shift_datetimes']
-        return obj
+        return age_group
 
     @classmethod
     def generate(
             cls,
-            current_datetime: datetime,
-            interval: float,
-            age_recognition_loc: float = 4.0,
-            age_recognition_scale: float = 0.5,
-            counting_skill_loc: float = 4.5,
-            counting_skill_scale: float = 0.050,
-            content_rate_loc: float = 4.5,
-            content_rate_scale: float = 0.5,
-            discipline_rate_loc: float = 4.5,
-            discipline_rate_scale: float = 0.5,
             seed: int = None,
             rng: np.random.RandomState = None
             ) -> Employee:
         if rng is None:
             rng = np.random.RandomState(seed)
 
-        age_recognition_rate = np.clip(
-            rng.normal(
-                age_recognition_loc,
-                age_recognition_scale
-            ),
-            1.0,
-            5.0
-        )
-        counting_skill_rate = np.clip(
-            rng.normal(
-                counting_skill_loc,
-                counting_skill_scale
-            ),
-            1.0,
-            5.0
-        )
-        content_rate = np.clip(
-            rng.normal(
-                content_rate_loc,
-                content_rate_scale
-            ),
-            1.0,
-            5.0
-        )
-        discipline_rate = np.clip(
-            rng.normal(
-                discipline_rate_loc,
-                discipline_rate_scale
-            ),
-            1.0,
-            5.0
-        )
-
-        gender = Gender.MALE if rng.random() < 0.5 else Gender.FEMALE
-        age = np.clip(
-            rng.normal(24.0, 2.0),
-            18.0,
-            30.0
-        )
-
-        person = Person.generate(
-            gender=gender,
-            age=age,
-            status=FamilyStatus.SINGLE,
-            current_date=current_datetime.date(),
-            seed=seed,
-            rng=rng
-        )
-        return cls(
-            person,
-            'Unnamed',
-            current_datetime,
-            interval,
-            age_recognition_rate=age_recognition_rate,
-            counting_skill_rate=counting_skill_rate,
-            content_rate=content_rate,
-            discipline_rate=discipline_rate,
-            seed=seed,
-            rng=rng
-        )
-
-    @classmethod
-    def bulk_generate(
-            cls,
-            n: int,
-            current_date: date,
-            age_recognition_loc: float = 4.0,
-            age_recognition_scale: float = 0.5,
-            counting_skill_loc: float = 4.5,
-            counting_skill_scale: float = 0.050,
-            content_rate_loc: float = 4.5,
-            content_rate_scale: float = 0.5,
-            discipline_rate_loc: float = 4.5,
-            discipline_rate_scale: float = 0.5,
-            seed: int = None,
-            rng: np.random.RandomState = None,
-            ) -> Employee:
-        return [
-            cls.generate(
-                current_date,
-                age_recognition_loc,
-                age_recognition_scale,
-                counting_skill_loc,
-                counting_skill_scale,
-                content_rate_loc,
-                content_rate_scale,
-                discipline_rate_loc,
-                discipline_rate_scale,
-                seed=seed,
-                rng=rng
+        gender = Gender(int(rng.randint(2)))
+        age = int(
+            np.clip(
+                rng.normal(24.0, 2.0),
+                18.0,
+                30.0
             )
-            for _ in range(n)
-        ]
+            * DAYS_IN_YEAR
+        )
+
+        return cls(
+            'Unnamed',
+            gender,
+            age,
+            seed=seed,
+            rng=rng
+        )

@@ -2,10 +2,11 @@ import os
 import yaml
 from datetime import date
 from pathlib import Path
-from typing import Any, List, Union
+from typing import Any, Union
 
-from .core.utils import get_dict_value
+from core.utils import get_dict_value
 
+SECONDS_IN_DAY = 86400
 DAYS_IN_YEAR = 365.2425
 
 
@@ -52,10 +53,16 @@ class GlobalContext:
             Path,
             DATA_DIR / 'stores.db'
         )
+    SQLITE_CONFIG_DB_PATH: Path = \
+        get_environment_variable(
+            'SQLITE_DB_CONFIG_PATH',
+            Path,
+            DATA_DIR / 'config.db'
+        )
 
-    RESTORE_DIR: Path = \
-        get_environment_variable('RESTORE_DIR', Path, DATA_DIR / 'restore')
-    RESTORE_DIR.mkdir(parents=True, exist_ok=True)
+    SIMULATOR_SAVE_DIR: Path = \
+        get_environment_variable('RESTORE_DIR', Path, DATA_DIR / 'simulator')
+    SIMULATOR_SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
     POSTGRES_DB_NAME: str = \
         get_environment_variable(
@@ -88,16 +95,6 @@ class GlobalContext:
             'SIMULATOR_INTERVAL',
             float,
             1.0
-        )
-    SIMULATOR_INTERVAL_MIN: float = \
-        get_environment_variable(
-            'SIMULATOR_INTERVAL_MIN',
-            float
-        )
-    SIMULATOR_INTERVAL_MAX: float = \
-        get_environment_variable(
-            'SIMULATOR_INTERVAL_MAX',
-            float
         )
     CURRENCY_MULTIPLIER: float = \
         get_environment_variable(
@@ -146,23 +143,23 @@ class GlobalContext:
         get_environment_variable(
             'SIMULATOR_POPULATION_FAMILY_MARRIED',
             float,
-            0.75
+            0.7
         )
-    POPULATION_FAMILY_MARRIED_AND_ELDER_PROB: float = \
+    POPULATION_FAMILY_PARENT_ELDER_PROB: float = \
         get_environment_variable(
-            'SIMULATOR_POPULATION_FAMILY_SINGLE_AND_MALE',
+            'SIMULATOR_POPULATION_FAMILY_PARENT_ELDER_PROB',
             float,
             0.1
         )
     POPULATION_FAMILY_SINGLE_AND_MALE_PROB: float = \
         get_environment_variable(
-            'SIMULATOR_POPULATION_FAMILY_SINGLE_AND_MALE',
+            'SIMULATOR_POPULATION_FAMILY_SINGLE_AND_MALE_PROB',
             float,
-            0.7
+            0.6
         )
     POPULATION_FAMILY_SINGLE_PARENT_AND_MALE_PROB: float = \
         get_environment_variable(
-            'SIMULATOR_POPULATION_FAMILY_SINGLE_AND_MALE',
+            'SIMULATOR_POPULATION_FAMILY_SINGLE_PARENT_AND_MALE',
             float,
             0.4
         )
@@ -188,7 +185,10 @@ class GlobalContext:
         get_environment_variable('SIMULATOR_STORE_OPEN_HOUR', float, 7.0)
     STORE_CLOSE_HOUR: float = \
         get_environment_variable('SIMULATOR_STORE_OPEN_HOUR', float, 22.0)
-    STORE_PEAK_HOURS: List[float] = [12.5, 19.0]
+    STORE_PEAK_HOURS: list[float] = [12.5, 19.0]
+
+    STORE_QUEUE_MAX_WAIT_TIME: float = \
+        get_environment_variable('SIMULATOR_STORE_OPEN_HOUR', float, 1800.0)
 
     CONFIG_ITEM_PATH: Path = \
         get_environment_variable(

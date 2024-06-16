@@ -2,9 +2,9 @@ import argparse
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from pathlib import Path
-from typing import List
+from time import time
 
-from ..core.utils import cast
+from core.utils import cast
 from ..logging import simulator_logger
 from ..simulator import Simulator
 
@@ -24,16 +24,6 @@ def add_run_parser(subparsers) -> None:
         '--interval',
         type=float,
         help='Adjust simulator new fixed interval (seconds) only for the run.'
-    )
-    parser.add_argument(
-        '--interval-min',
-        type=float,
-        help='Adjust simulator new minimum interval (secs) only for the run.'
-    )
-    parser.add_argument(
-        '--interval-max',
-        type=float,
-        help='Adjust simulator new maximum interval (secs) only for the run.'
     )
     parser.add_argument(
         '--max-datetime', '-M',
@@ -119,37 +109,24 @@ def get_next_checkpoint(
 
 
 def run_simulator(
-        restore_file: str,
+        load_dir: Path,
         max_datetime: str,
         speed: float,
         interval: float,
-        interval_min: float,
-        interval_max: float,
         sync: bool,
         checkpoint: str,
-        store_ids: List[str] = None
-        ) -> None:
-    restore_file = Path(restore_file)
-
-    _time = datetime.now()
-    simulator_logger.info('Loading simulator...')
-    simulator: Simulator = Simulator.restore(
-        restore_file,
-        store_ids=store_ids
-    )
+        store_ids: list[str] = None
+        ) -> Simulator:
+    _time = time()
+    simulator: Simulator = Simulator.load(load_dir, store_ids)
     simulator_logger.info(
-        f'Succesfully loaded the simulator. '
+        f'Succesfully loaded the simulator with {simulator.n_stores} stores. '
         f'Last simulation datetime at {simulator.current_datetime}. '
-        f'{(datetime.now() - _time).total_seconds():.1f}s.'
+        f'{time() - _time:.1f}s.'
     )
 
-    if interval_min is not None \
-            and interval_max is not None:
-        simulator.interval = (interval_min, interval_max)
-    elif interval is not None:
+    if interval is not None:
         simulator.interval = interval
-
-    simulator._next_step = simulator._current_step + simulator.interval
 
     if speed is not None:
         simulator.speed = speed
@@ -163,20 +140,17 @@ def run_simulator(
             and max_datetime < max_datetime_:
         max_datetime_ = max_datetime
 
-    while simulator.next_datetime is not None \
-            and (
-                max_datetime is None
-                or simulator.next_datetime < max_datetime
-            ):
+    while max_datetime is None \
+            or simulator.next_datetime < max_datetime:
         simulator.run(
             sync=sync,
             max_datetime=max_datetime_
         )
-        simulator.push_restore()
+        simulator.save(load_dir)
 
         max_datetime_ = get_next_checkpoint(
             simulator.next_datetime,
             checkpoint
         )
 
-    return str(simulator.restore_file)
+    return simulator

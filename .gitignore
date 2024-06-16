@@ -2,4 +2,6 @@
 *.env
 *.pid
 celerybeat-schedule*
+__pycache__/
 /data
+noop.txt

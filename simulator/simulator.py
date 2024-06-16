@@ -1,40 +1,39 @@
 from __future__ import annotations
 
 import numpy as np
-import shutil
-from datetime import datetime, timedelta
+import orjson
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Tuple
+from peewee import JOIN
+from time import time
+from typing import Generator
 
-from .core import RandomDatetimeEnvironment
-from .core.utils import cast
-from .context import GlobalContext, DAYS_IN_YEAR
+from core import DateTimeEnvironment
+from core.utils import cast, load_memmap_to_array, dump_memmap_to_array
+
+from .context import GlobalContext, DAYS_IN_YEAR, SECONDS_IN_DAY
 from .database import SubdistrictModel, StoreModel
-from .logging import simulator_logger, store_logger, simulator_log_format
-from .population import Family, Place
-from .store import Product, Store
+from .logging import simulator_logger, simulator_log_format
+from .store.place import Place
+from .store import Store
 
 
 class Simulator(
-        RandomDatetimeEnvironment,
+        DateTimeEnvironment,
         repr_attrs=('n_stores', 'current_datetime')
         ):
     def __init__(
             self,
             initial_datetime: datetime = None,
-            interval: Tuple[float, Tuple[float, float]] = None,
-            speed: float = None,
             max_datetime: datetime = None,
+            interval: float = 1.,
+            speed: float = 1.,
             initial_stores: int = None,
             initial_store_population: int = None,
             store_growth_rate: float = None,
-            restore_file: Path = None,
-            seed: int = None
+            seed: int = None,
+            rng: np.random.RandomState = None
             ) -> None:
-        if store_growth_rate is None:
-            store_growth_rate = GlobalContext.STORE_GROWTH_RATE
-        self.store_growth_rate = store_growth_rate
-
         if initial_datetime is None:
             initial_datetime = datetime(
                 GlobalContext.INITIAL_DATE.year,
@@ -43,61 +42,53 @@ class Simulator(
             )
 
         if interval is None:
-            if GlobalContext.SIMULATOR_INTERVAL_MIN is None:
-                interval = GlobalContext.SIMULATOR_INTERVAL
-            else:
-                interval = (
-                    GlobalContext.SIMULATOR_INTERVAL_MIN,
-                    GlobalContext.SIMULATOR_INTERVAL_MAX
-                )
+            interval = GlobalContext.SIMULATOR_INTERVAL
 
         if speed is None:
             speed = GlobalContext.SIMULATOR_SPEED
 
         super().__init__(
-            initial_datetime,
+            initial_datetime=initial_datetime,
+            max_datetime=max_datetime,
             interval=interval,
             speed=speed,
-            max_datetime=max_datetime,
             skip_step=True,
-            seed=seed
+            agents=None,
+            seed=seed,
+            rng=rng
         )
 
-        # Prepare restore file
-        if restore_file is None:
-            restore_file = GlobalContext.RESTORE_DIR / 'simulator.json'
-        self.restore_file = restore_file
+        if store_growth_rate is None:
+            store_growth_rate = GlobalContext.STORE_GROWTH_RATE
+        self.store_growth_rate = store_growth_rate
 
         # Generate stores
         if initial_stores is None:
             initial_stores = GlobalContext.INITIAL_STORES
-
-        self.products: Dict[str, Product] = Product.load()
         if initial_stores > 0:
+            _time = time()
             if initial_store_population is None:
                 initial_store_population = \
                     GlobalContext.STORE_MARKET_POPULATION
 
-            _time_stores = datetime.now()
-            simulator_logger.info('Generating stores...')
-            self._populate_stores(
+            stores = self.init_stores(
                 initial_stores,
-                initial_store_population,
+                self.initial_step,
+                market_population=initial_store_population,
                 build_range_days=GlobalContext.INITIAL_STORES_RANGE_DAYS
             )
+            self.add_agents(stores)
             simulator_logger.info(
                 f'Simulator has been created with '
-                f'the initial of {self.n_stores} stores. '
-                f'{(datetime.now() - _time_stores).total_seconds():.1f}s.'
+                f'{self.n_stores} initial stores. '
+                f'{time() - _time:.1f}s.'
             )
-
-        self.push_restore(tmp=True)
 
     @property
     def n_stores(self) -> int:
         return super().n_agents
 
-    def stores(self) -> Iterable[Store]:
+    def stores(self) -> Generator[Store]:
         return super().agents()
 
     def total_market_population(self) -> int:
@@ -106,284 +97,129 @@ class Simulator(
             for store in self.stores()
         ])
 
-    def step(self, *args, **kwargs):
-        past_datetime = self.current_datetime
-        current_step, next_step = super().step()
+    def step(self, *args, **kwargs) -> list[np.uint32, np.uint32, bool]:
+        previous_datetime = self.current_datetime
+        current_step, next_step, done = super().step(*args, **kwargs)
         current_datetime = cast(current_step, datetime)
 
         n_stores = self.n_stores
-        n_active_stores = len([
-            store
-            for store in self.stores()
-            if store.initial_step <= current_step
-        ])
 
         # @ 1 hour - Log today orders hourly
-        if current_datetime.hour != past_datetime.hour:
-            speed_adjusted_real_current_datetime, behind_seconds = \
-                self._calculate_behind_seconds(current_datetime)
+        if previous_datetime.hour != current_datetime.hour:
+            adjusted_real_current_timestamp, behind_seconds = \
+                self.calculate_behind_seconds(current_step)
             dt_str = (
-                speed_adjusted_real_current_datetime
+                datetime.fromtimestamp(adjusted_real_current_timestamp)
                 .isoformat(sep=' ', timespec='seconds')
             )
-
-            if behind_seconds <= self._interval \
-                    or current_datetime.day != past_datetime.day:
-                simulator_logger.info(simulator_log_format(
-                    f'Total active stores: {n_active_stores}/{n_stores}.',
-                    'Today cumulative orders:',
-                    sum([
-                        store.total_orders
-                        for store in self.stores()
-                    ]),
-                    dt=current_datetime
-                ))
-
+            # Log synchronization between simulation
+            # and the real/projected datetime
+            if kwargs.get('sync', False) \
+                    and behind_seconds >= self.interval:
                 simulator_logger.debug(simulator_log_format(
-                    'Today unconverted orders:',
-                    sum([
-                        store.total_canceled_orders
-                        for store in self.stores()
-                    ]),
-                    '. Today customer steps:',
-                    sum([
-                        store.customer_steps
-                        for store in self.stores()
-                    ]),
-                    '. Today employee steps:',
-                    sum([
-                        store.employee_steps
-                        for store in self.stores()
-                    ]),
-                    dt=current_datetime
+                    'Simulation is behind the',
+                    'real datetime' if self.speed == 1.0
+                    else f"projected datetime ({dt_str})",
+                    f'by {behind_seconds:.1f}s.',
+                    dt=current_step
                 ))
 
-                for i, store in enumerate(self.stores(), 1):
-                    if store.initial_step > current_step:
-                        continue
+        if previous_datetime.day != current_datetime.day:
+            # Grow new stores
+            n_new_stores = np.sum(
+                self._rng.random(n_stores)
+                < self.store_growth_rate / DAYS_IN_YEAR
+            )
+            stores = self.init_stores(n_new_stores, current_step)
+            if len(stores) > 0:
+                self.add_agents(stores)
+                simulator_logger.info(
+                    f"Add {n_new_stores} new store on "
+                    f"{date.fromtimestamp(int(current_step))}. "
+                    f"Total stores: {self.n_stores}."
+                )
 
-                    store_logger.debug(simulator_log_format(
-                        f"Store #{str(i).rjust(len(str(n_stores)), '0')}",
-                        store.place_name,
-                        '-', 'OPEN' if store.is_open() else 'CLOSE',
-                        f'({store.n_cashiers}/{store.n_employees})',
-                        f'| Today cumulative orders: {store.total_orders}.',
-                        dt=current_datetime
-                    ))
+        return current_step, next_step, done
 
-            if current_datetime.day != past_datetime.day:
-                # Log synchronization between simulation
-                # and the real/projected datetime
-                if kwargs.get('sync', False):
-                    if behind_seconds >= self._interval:
-                        simulator_logger.debug(simulator_log_format(
-                            'Simulation is behind the',
-                            'real datetime' if self.speed == 1.0
-                            else f"projected datetime ({dt_str})",
-                            f'by {behind_seconds:.1f}s.',
-                            dt=current_datetime
-                        ))
-
-                current_date = current_datetime.date()
-                total_subdistricts = SubdistrictModel.select().count()
-                growth_rate = self.store_growth_rate / DAYS_IN_YEAR
-                for random in self._rng.random(n_stores):
-                    if random > growth_rate:
-                        continue
-
-                    try:
-                        _time_store = datetime.now()
-
-                        subdistrict: SubdistrictModel = (
-                            SubdistrictModel.select()
-                            .limit(1)
-                            .offset(int(self._rng.choice(total_subdistricts)))
-                            .execute()
-                            .iterate()
-                        )
-
-                        store_dir = (
-                            self.restore_file.parent
-                            / 'Store'
-                            / subdistrict.code
-                        )
-                        store_dir.mkdir(parents=True, exist_ok=True)
-
-                        # Create a place
-                        market_populations, fertility_rates, \
-                            life_expectancies, marry_ages = \
-                            self._calculate_market_params(1)
-
-                        place = Place(
-                            code=subdistrict.code,
-                            name=subdistrict.name,
-                            initial_date=current_date,
-                            initial_population=market_populations[0],
-                            fertility_rate=fertility_rates[0],
-                            life_expectancy=life_expectancies[0],
-                            marry_age=marry_ages[0],
-                            rng=np.random.RandomState(self.random_seed())
-                        )
-                        place.push_restore(store_dir / 'place.json', tmp=True)
-
-                    # Possible error when a store
-                    except Exception:
-                        simulator_logger.error(
-                            'Failed to build new store.',
-                            exc_info=True
-                        )
-                        shutil.rmtree(place.restore_file.parent)
-                        place = None
-
-                    if place is not None:
-                        # Add store on the place
-                        store = Store(
-                            place,
-                            current_datetime,
-                            self.interval,
-                            rng=place._rng
-                        )
-                        store.created_datetime = current_datetime
-                        self.add_agent(store)
-
-                        # Populate place with families and customer data
-                        for family in Family.bulk_generate(
-                                int(place.initial_population / 3.0),
-                                current_date,
-                                rng=place._rng
-                                ):
-                            family_dir = (
-                                store_dir
-                                / 'Customer'
-                                / family.id
-                            )
-                            family_dir.mkdir(parents=True, exist_ok=True)
-                            family.push_restore(family_dir / 'family.json')
-
-                        store.push_restore(store_dir / 'store.json')
-                        time_elapsed = (
-                            datetime.now() - _time_store
-                        ).total_seconds()
-                        simulator_logger.info(
-                            f"New store ({self.n_stores}) '{place.name}' "
-                            f"is created on '{store.initial_date}'. "
-                            f'{time_elapsed:.1f}s.'
-                        )
-
-        return current_step, next_step
-
-    def _populate_stores(
+    def init_stores(
             self,
             n: int,
+            current_step: float,
             market_population: int = None,
+            market_spending_rate: float = None,
             market_fertility_rate: float = None,
             market_life_expectancy: float = None,
             market_marry_age: float = None,
-            build_range_days: int = 0
+            build_range_days: int = 0,
             ) -> None:
-        initial_datetime = self.current_datetime
-        initial_date = initial_datetime.date()
-
-        total_subdistricts = SubdistrictModel.select().count()
-        subdistrict_ids = \
-            self._rng.choice(total_subdistricts, n, replace=False)
-
-        market_populations, fertility_rates, \
-            life_expectancies, marry_ages = \
-            self._calculate_market_params(
+        n = int(n)
+        available_subdistricts_query = (
+            SubdistrictModel.select()
+            .join(StoreModel, JOIN.LEFT_OUTER)
+            .where(StoreModel.id.is_null())
+        )
+        random_offset = \
+            int(self._rng.randint(available_subdistricts_query.count() - n))
+        new_subdistricts: list[SubdistrictModel] = list(
+            available_subdistricts_query
+            .limit(n)
+            .offset(random_offset)
+        )
+        market_populations, spending_rates, \
+            fertility_rates, life_expectancies, marry_ages = \
+            self.calculate_market_params(
                 n,
                 market_population,
+                market_spending_rate,
                 market_fertility_rate,
                 market_life_expectancy,
                 market_marry_age
             )
+        delay_days = self._rng.randint(0, build_range_days + 1, n)
 
-        delay_days = self._rng.choice(build_range_days + 1, n)
-
-        for i, subdistrict_id, market_population_, \
-                fertility_rate_, life_expectancy_, marry_age_, \
-                delay_days_ in zip(
-                    range(1, n + 1),
-                    subdistrict_ids,
+        initial_step = current_step - current_step % SECONDS_IN_DAY
+        stores = []
+        for (
+                subdistrict, population, spending_rate,
+                fertility_rate, life_expectancy,
+                marry_age, delay_days,
+                random_seed
+                ) in zip(
+                    new_subdistricts,
                     market_populations,
+                    spending_rates,
                     fertility_rates,
                     life_expectancies,
                     marry_ages,
-                    delay_days
+                    delay_days,
+                    self.random_seed(n)
                 ):
-            _time_store = datetime.now()
-
-            subdistrict: SubdistrictModel = (
-                SubdistrictModel.select()
-                .limit(1)
-                .offset(int(subdistrict_id))
-                .execute()
-                .iterate()
-            )
-
-            store_dir = (
-                self.restore_file.parent
-                / 'Store'
-                / subdistrict.code
-            )
-            store_dir.mkdir(parents=True, exist_ok=True)
-
-            # Create a place
             place = Place(
                 code=subdistrict.code,
                 name=subdistrict.name,
-                initial_date=initial_date,
-                initial_population=market_population_,
-                fertility_rate=fertility_rate_,
-                life_expectancy=life_expectancy_,
-                marry_age=marry_age_,
-                rng=np.random.RandomState(self.random_seed())
-            )
-            place.push_restore(store_dir / 'place.json', tmp=True)
-
-            # Add store on the place
-            store_initial_datetime = (
-                datetime(
-                    initial_datetime.year,
-                    initial_datetime.month,
-                    initial_datetime.day
-                )
-                + timedelta(days=int(delay_days_))
+                initial_datetime=initial_step + delay_days * SECONDS_IN_DAY,
+                initial_population=population,
+                spending_rate=spending_rate,
+                fertility_rate=fertility_rate,
+                life_expectancy=life_expectancy,
+                marry_age=marry_age,
+                rng=np.random.RandomState(random_seed)
             )
             store = Store(
                 place,
-                store_initial_datetime,
-                self.interval,
-                rng=place._rng
+                current_step - current_step % SECONDS_IN_DAY,
+                interval=self.interval,
+                seed=random_seed
             )
-            store.created_datetime = initial_datetime
-            self.add_agent(store)
+            stores.append(store)
 
-            # Populate place with families and customer data
-            for family in Family.bulk_generate(
-                    int(place.initial_population / 3.0),
-                    initial_date,
-                    rng=place._rng
-                    ):
-                family_dir = (
-                    store_dir
-                    / 'Customer'
-                    / family.id
-                )
-                family_dir.mkdir(parents=True, exist_ok=True)
-                family.push_restore(family_dir / 'family.json')
+        return stores
 
-            store.push_restore(store_dir / 'store.json')
-            simulator_logger.debug(
-                f"New store ({i}/{n}) '{place.name}' is created and "
-                f"the initial date is on '{store.initial_date}'. "
-                f'{(datetime.now() - _time_store).total_seconds():.1f}s.'
-            )
-
-    def _calculate_market_params(
+    def calculate_market_params(
             self,
             n: int,
             population: int = None,
+            spending_rate: float = None,
             fertility_rate: float = None,
             life_expectancy: float = None,
             marry_age: float = None,
@@ -397,6 +233,18 @@ class Simulator(
                 size=n
             ),
             50.0, np.Inf
+        )
+
+        if spending_rate is None:
+            spending_rate = GlobalContext.POPULATION_SPENDING_RATE
+        spending_rates = np.clip(
+            self._rng.normal(
+                spending_rate,
+                spending_rate * 0.1,
+                size=n
+            ),
+            0.1,
+            0.8
         )
 
         if fertility_rate is None:
@@ -432,101 +280,88 @@ class Simulator(
             18.0, np.Inf
         )
 
-        return populations, fertility_rates, life_expectancies, marry_ages
+        return (
+            populations,
+            spending_rates,
+            fertility_rates,
+            life_expectancies,
+            marry_ages
+        )
 
-    def _calculate_behind_seconds(
+    def calculate_behind_seconds(
             self,
-            current_datetime: datetime
-            ) -> Tuple[datetime, float]:
-        real_current_datetime = datetime.now()
-        speed_adjusted_real_current_datetime = real_current_datetime
-        if self.speed != 1.0:
-            speed_adjusted_real_current_datetime = (
-                self._real_initial_datetime
-                + self.speed * (
-                    real_current_datetime - self._real_initial_datetime
-                )
+            current_step: float
+            ) -> tuple[float, float]:
+        real_current_timestamp = time()
+        adjusted_real_current_timestamp = (
+            self._real_initial_timestamp
+            + self.speed * (
+                real_current_timestamp - self._real_initial_timestamp
+            )
+        )
+        behind_seconds = \
+            adjusted_real_current_timestamp - current_step
+        return adjusted_real_current_timestamp, behind_seconds
+
+    def save(self, save_dir: Path) -> None:
+        save_dir = cast(save_dir, Path)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        for store in self.stores():
+            store.save(save_dir=save_dir / f'Store_{store.record_id:06d}')
+
+        with open(save_dir / 'simulator.json', 'wb') as f:
+            f.write(
+                orjson.dumps({
+                    'store_growth_rate': self.store_growth_rate,
+                    'real_initial_timestamp': self._real_initial_timestamp,
+                    'rng_state': self.dump_rng_state()
+                })
             )
 
-        behind_seconds = (
-            speed_adjusted_real_current_datetime
-            - current_datetime
-        ).total_seconds()
-        return speed_adjusted_real_current_datetime, behind_seconds
-
-    @property
-    def restore_attrs(self) -> Dict[str, Any]:
-        attrs = super().restore_attrs
-        attrs['store_growth_rate'] = self.store_growth_rate
-        return attrs
-
-    def _push_restore(
-            self,
-            file: Path = None,
-            tmp: bool = False,
-            **kwargs
-            ) -> None:
-        if not tmp:
-            _time = datetime.now()
-            simulator_logger.info("Simulator is being backup...")
-
-            for i, store in enumerate(self.stores(), 1):
-                _time_store = datetime.now()
-                store.push_restore()
-                simulator_logger.info(
-                    f'Backup store ({i}/{self.n_stores}) {store.place_name}. '
-                    f'{(datetime.now() - _time_store).total_seconds():.1f}s.'
-                )
-
-            super()._push_restore(file, tmp=tmp, **kwargs)
-            simulator_logger.info(
-                f'Succesfully backup the simulator. '
-                f'{(datetime.now() - _time).total_seconds():.1f}s.'
-            )
-
-        else:
-            super()._push_restore(file, tmp=tmp, **kwargs)
+        dump_memmap_to_array(
+            self._steps,
+            save_dir / 'simulator_steps.dat',
+            dtype=np.uint32
+        )
 
     @classmethod
-    def _restore(
-            cls,
-            attrs: Dict[str, Any],
-            file: Path,
-            **kwargs
-            ) -> Simulator:
-        base_dir = file.parent
+    def load(self, load_dir: Path, store_ids: list[int] = None) -> Place:
+        load_dir = cast(load_dir, Path)
+        with open(load_dir / 'simulator.json', 'rb') as f:
+            meta = orjson.loads(f.read())
 
-        initial_step, interval, max_step, \
-            current_step, next_step, skip_step, speed = attrs['base_params']
-        obj = cls(
-            initial_step,
-            interval,
-            speed,
-            max_step,
-            0,
-            0,
-            attrs['store_growth_rate']
+        simulator_steps = load_memmap_to_array(
+            load_dir / 'simulator_steps.dat',
+            dtype=np.uint32
         )
-        obj._current_step = current_step
-        obj._next_step = next_step
-        obj._real_initial_datetime = attrs['real_initial_datetime']
-        obj.load_rng_state(attrs['rng_state'])
+
+        obj = Simulator(
+            initial_stores=0,
+            store_growth_rate=meta['store_growth_rate']
+        )
+        obj._real_initial_timestamp = meta['real_initial_timestamp']
+        obj.load_rng_state(meta['rng_state'])
 
         StoreModel.delete() \
-            .where(StoreModel.created_datetime > obj.current_datetime) \
+            .where(
+                StoreModel.created_datetime
+                > cast(simulator_steps[3], datetime)
+            ) \
             .execute()
 
-        store_ids = kwargs.get('store_ids')
-        for store_restore_file in base_dir.rglob('Store/*/store.json'):
-            if isinstance(store_ids, list) \
-                    and store_restore_file.parent.name not in store_ids:
+        stores = []
+        for store_record in (
+                    StoreModel.select()
+                    .order_by(StoreModel.id)
+                ):
+            if store_ids is not None \
+                    and store_record.id not in store_ids:
                 continue
 
-            store = Store.restore(base_dir / str(store_restore_file))
-            if store.record_id is None:
-                shutil.rmtree(store_restore_file.parent)
-                continue
+            store = Store.load(load_dir / f'Store_{store_record.id:06d}')
+            stores.append(store)
 
-            obj.add_agent(store)
-
+        obj._steps = simulator_steps[:]
+        obj.add_agents(stores)
         return obj

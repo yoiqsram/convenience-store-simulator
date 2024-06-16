@@ -1,15 +1,17 @@
+import numpy as np
 import os
 from celery import Celery, group
 from pathlib import Path
 from psutil import Process
 
-from simulator.cli.run import run_simulator
+from core.utils import load_memmap_to_array, get_memory_usage
+from simulator.cli.run import run_simulator_sync
 from simulator.logging import simulator_logger
 
 __all__ = [
     'app',
     'group',
-    'run_simulator_async'
+    'run_simulator_task'
 ]
 
 broker_url = os.environ.get('BROKER_URL', 'redis://localhost:6379/0')
@@ -22,29 +24,36 @@ app = Celery(
 
 
 @app.task(name='simulator.run')
-def run_simulator_async(
+def run_simulator_task(
         load_dir: str,
         max_datetime: str,
-        speed: float,
         interval: float,
+        speed: float,
         sync: bool,
-        checkpoint: str,
         store_ids: list[str] = None
-        ) -> tuple[Path, int]:
+        ) -> tuple[int, int, int]:
     try:
-        run_simulator(
+        return run_simulator_sync(
             load_dir=load_dir,
             max_datetime=max_datetime,
-            speed=speed,
             interval=interval,
+            speed=speed,
             sync=sync,
-            checkpoint=checkpoint,
             store_ids=store_ids
         )
+
     except Exception:
         simulator_logger.error(
             'Unexpected error happened.',
             exc_info=True
         )
 
-    return load_dir, Process().memory_info().rss
+    simulator_steps = load_memmap_to_array(
+        Path(load_dir) / 'simulator_steps.dat',
+        dtype=np.uint32
+    )
+    return (
+        int(simulator_steps[3]),
+        int(simulator_steps[4]),
+        get_memory_usage()
+    )

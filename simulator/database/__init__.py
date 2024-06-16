@@ -135,10 +135,13 @@ def _populate_items(created_datetime: datetime) -> None:
 
             for sku in product['skus']:
                 try:
-                    price = 100 * np.ceil(
+                    price_rounding = 10 ** np.ceil(
+                        len(str(int(GlobalContext.CURRENCY_MULTIPLIER))) / 2
+                    )
+                    price = price_rounding * np.ceil(
                         sku['price']
                         * GlobalContext.CURRENCY_MULTIPLIER
-                        / 100
+                        / price_rounding
                     )
                     SKUModel.create(
                         name=sku['name'],

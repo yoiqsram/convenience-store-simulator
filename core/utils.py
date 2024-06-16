@@ -2,6 +2,7 @@ import numpy as np
 from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
+from psutil import Process
 from typing import Any
 
 
@@ -122,3 +123,7 @@ def dump_memmap_to_array(
     )
     memmap[:] = arr[:]
     memmap.flush()
+
+
+def get_memory_usage(pid: int = None):
+    return Process(pid).memory_info().rss / 1048576

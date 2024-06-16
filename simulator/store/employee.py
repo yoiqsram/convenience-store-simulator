@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from core import Agent, DateTimeStepMixin
+from core.utils import cast
 from ..context import DAYS_IN_YEAR, SECONDS_IN_DAY
 from ..database import EmployeeModel, EmployeeAttendanceModel, ModelMixin
 from ..enums import (
@@ -183,15 +184,15 @@ class Employee(
             f'STORE {self.parent.place_name} -',
             f'[{self.record_id}]:',
             f"Schedule today's {self.shift.name} shift at",
-            datetime.fromtimestamp(self.schedule_shift_start_timestamp),
+            cast(self.schedule_shift_start_timestamp, datetime),
             dt=self.current_datetime
         ))
 
-    def begin_shift(self, current_step: float) -> None:
+    def begin_shift(self, current_step: int) -> None:
         EmployeeAttendanceModel.create(
             employee=self.record.id,
             status=EmployeeAttendanceStatus.BEGIN_SHIFT.name,
-            created_datetime=datetime.fromtimestamp(float(current_step))
+            created_datetime=cast(current_step, datetime)
         )
         self.status = EmployeeStatus.STARTING_SHIFT
         self.today_shift_start_timestamp = current_step
@@ -200,7 +201,7 @@ class Employee(
             f'STORE {self.parent.place_name} -',
             f'[{self.record_id}]:',
             f"Begin today's {self.shift.name} shift until",
-            datetime.fromtimestamp(self.schedule_shift_end_timestamp),
+            cast(self.schedule_shift_end_timestamp, datetime),
             dt=self.current_datetime
         ))
 
@@ -208,7 +209,7 @@ class Employee(
         EmployeeAttendanceModel.create(
             employee=self.record.id,
             status=EmployeeAttendanceStatus.COMPLETE_SHIFT.name,
-            created_datetime=current_step
+            created_datetime=cast(current_step, datetime)
         )
         self.status = EmployeeStatus.OFF
         self.today_shift_end_timestamp = current_step
@@ -253,7 +254,7 @@ class Employee(
     def estimate_customer_age_group(
             self,
             buyer_age: float
-            ) -> tuple[Gender, AgeGroup]:
+            ) -> tuple[AgeGroup]:
         age = (
             buyer_age / DAYS_IN_YEAR
             + self._rng.normal(0, (6.0 - self.age_recognition_rate) * 2)

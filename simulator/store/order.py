@@ -51,7 +51,6 @@ class Order(
         return len(self.order_skus)
 
     def cancel_order(self) -> None:
-        self.store.total_canceled_orders += 1
         self.store.remove_order_queue(self)
 
     def collect(self, current_timestamp: float) -> None:
@@ -103,7 +102,7 @@ class Order(
                 store_id=self.store.record.id,
                 cashier_employee=employee.record.id,
                 buyer_gender=self.buyer_gender.name,
-                buyer_age_group=buyer_age_group,
+                buyer_age_group=buyer_age_group.name,
                 created_datetime=cast(self.checkout_start_timestamp, datetime),
                 complete_datetime=cast(self.complete_timestamp, datetime)
             )
@@ -114,5 +113,5 @@ class Order(
                     sku=sku.id,
                     price=sku.price,
                     quantity=quantity,
-                    created_datetime=current_timestamp
+                    created_datetime=cast(current_timestamp, datetime)
                 )

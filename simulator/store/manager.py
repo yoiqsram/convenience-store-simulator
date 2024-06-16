@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from core import Agent, DateTimeStepMixin
+from core.utils import cast
 
 from ..context import SECONDS_IN_DAY
 from ..enums import EmployeeShift, EmployeeStatus
@@ -76,8 +77,7 @@ class Manager(
         for _ in range(n):
             employee = Employee.generate(rng=self._rng)
             self.parent.add_employee(employee)
-            employee.created_datetime = \
-                datetime.fromtimestamp(float(current_timestamp))
+            employee.created_datetime = cast(current_timestamp, datetime)
             new_employees.append(employee)
 
         return new_employees

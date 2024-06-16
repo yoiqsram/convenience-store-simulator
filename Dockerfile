@@ -1,7 +1,6 @@
 # STAGE 1: Build dependencies
-FROM python:3.8-alpine as build
-RUN apk add --no-cache git
-RUN apk add --no-cache postgresql-dev build-base
+FROM python:3.10.14-alpine3.20 as build
+RUN apk add --no-cache linux-headers build-base postgresql-dev git
 
 WORKDIR /app
 ENV PYTHONPATH=/app

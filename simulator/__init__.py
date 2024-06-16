@@ -3,4 +3,4 @@ from .simulator import Simulator
 __all__ = [
     'Simulator'
 ]
-__version__ = '0.2'
+__version__ = '0.3'

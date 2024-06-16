@@ -109,7 +109,7 @@ class Simulator(
             adjusted_real_current_timestamp, behind_seconds = \
                 self.calculate_behind_seconds(current_step)
             dt_str = (
-                datetime.fromtimestamp(adjusted_real_current_timestamp)
+                cast(adjusted_real_current_timestamp, datetime)
                 .isoformat(sep=' ', timespec='seconds')
             )
             # Log synchronization between simulation

@@ -92,7 +92,7 @@ def init_simulator(
         create_database(initial_datetime)
         simulator_logger.info(
             f'Simulator database is ready. '
-            f'{time() - time:.1f}s'
+            f'{time() - _time:.1f}s'
         )
 
         if isinstance(database, SqliteDatabase):

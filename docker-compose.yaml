@@ -27,7 +27,7 @@ services:
     restart: always
 
   simulator:
-    image: simulator/convenience-store:0.2
+    image: simulator/convenience-store:0.3
     build:
       dockerfile: Dockerfile
     environment:
@@ -52,7 +52,7 @@ services:
       - |
         export SEED=$${INITIAL_SEED:-}
 
-        if [ -e "/app/data/restore/simulator.json" ]; then
+        if [ -e "/app/data/simulator/simulator.json" ]; then
           echo "Simulator has already exists."
 
         else
@@ -71,7 +71,7 @@ services:
           fi
         fi
 
-        python -m simulator run --speed=$${SIMULATOR_SPEED:-1.0} --interval=${SIMULATOR_INTERVAL:-1} --interval-min=${SIMULATOR_INTERVAL_MIN:-1} --interval-max=${SIMULATOR_INTERVAL_MAX:-5} --checkpoint=${SIMULATOR_CHECKPOINT:-monthly} --workers=$${SIMULATOR_WORKERS:-0}
+        python -m simulator run --speed=$${SIMULATOR_SPEED:-1.0} --interval=${SIMULATOR_INTERVAL:-1} --checkpoint=${SIMULATOR_CHECKPOINT:-monthly} --workers=$${SIMULATOR_WORKERS:-0}
 
 volumes:
   postgres-db:

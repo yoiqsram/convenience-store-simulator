@@ -584,7 +584,7 @@ class Store(
             customer_mask: np.ndarray,
             current_step: float
             ) -> tuple[np.ndarray, np.ndarray]:
-        current_datetime = datetime.fromtimestamp(float(current_step))
+        current_datetime = cast(current_step, datetime)
         weekday = current_datetime.weekday()
         spending_rate = self.place._family_params[:, 0].copy()
         if weekday == 0:
@@ -713,7 +713,7 @@ class Store(
 
         EmployeeModel.delete() \
             .where(
-                EmployeeModel.store_id == store_record.id
+                (EmployeeModel.store_id == store_record.id)
                 & (EmployeeModel.created_datetime >= max_datetime)
             ) \
             .execute()

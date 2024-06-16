@@ -106,7 +106,8 @@ class ModelMixin:
         if hasattr(self._record, 'modified_datetime'):
             setattr(self._record, 'modified_datetime', value)
 
-        if self._record.id is None:
-            self._record.save(force_insert=True)
-        else:
-            self._record.save()
+        with BaseModel._meta.database.atomic():
+            if self._record.id is None:
+                self._record.save(force_insert=True)
+            else:
+                self._record.save()
